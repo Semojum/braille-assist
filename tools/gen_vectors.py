@@ -13,15 +13,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
-sys.path.insert(0, "/home/pj14/v2/code/AI")   # ascii_to_unicode (벡터 작성 편의용, 런타임 의존 아님)
 
-from app.utils.braille_ascii import ascii_to_unicode  # noqa: E402
 from braille_assist import (Options, build_pages, page_change_line,  # noqa: E402
                             page_row, to_brf_ascii)
 
+# 지침 원문의 점자 예시는 Braille ASCII로 적혀 있다. 벡터를 원문 그대로 적기 위해
+# 여기서 유니코드로 되돌린다 — 라이브러리 런타임과는 무관한 **작성 편의용**이다.
+# (`to_brf_ascii`의 역방향이라 표가 같아야 한다. 표가 어긋나면 지침 근거 케이스가 먼저 깨진다.)
+_SHIFT = {"`": "@", "{": "[", "|": "\\", "}": "]", "~": "^"}
+_ASCII_TO_CELL = {ch: chr(0x2800 + i) for i, ch in enumerate(
+    " A1B'K2L@CIF/MSP"
+    '"E3H9O6R^DJG>NTQ'
+    ",*5<-U8V.%[$+X!&"
+    ";:4\\0Z7(_?W]#Y)=")}
+
 
 def U(brf: str) -> str:
-    return ascii_to_unicode(brf, backtick="space")
+    """Braille ASCII → 유니코드 점자. 지침 원문 관례상 백틱은 **빈칸**이다."""
+    out = []
+    for ch in brf:
+        if ch == "\n":
+            out.append("\n")
+        elif ch in (" ", "`"):
+            out.append("⠀")
+        else:
+            out.append(_ASCII_TO_CELL[_SHIFT.get(ch) or ch.upper()])
+    return "".join(out)
 
 
 FOOT_A = U("0,i4`c<w`^1@*")        # [예 1-6] 꼬리말 13칸
