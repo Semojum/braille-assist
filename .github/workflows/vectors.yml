@@ -1,0 +1,39 @@
+name: vectors
+
+# 세 구현이 vectors.json으로 같은 출력을 내는지 확인한다.
+# 규칙이 바뀌면 세 구현 + 벡터를 한 PR로 갱신해야 하므로, 하나라도 어긋나면 막는다.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: python python/test_vectors.py
+
+  ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install --no-audit --no-fund
+        working-directory: ts
+      - run: npm run build       # 타입 오류도 CI에서 잡는다
+        working-directory: ts
+      - run: npm test
+        working-directory: ts
+
+  java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21', cache: maven }
+      - run: mvn -B test
+        working-directory: java

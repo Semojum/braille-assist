@@ -1,0 +1,9 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+# ts
+node_modules/
+dist/
+# java
+target/
