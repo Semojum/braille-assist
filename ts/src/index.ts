@@ -155,3 +155,73 @@ export function toBrfAscii(braille: string): string {
   }
   return out;
 }
+
+// ── 문서 조립 (2026-08-05 추가) ──────────────────────────────────────────────
+// 왜 여기 있나: ① 어느 면에 페이지행을 넣나 ② 걸침 순번(a·b·c)을 어떻게 세나
+// ③ 표지를 어디까지 빼나 — 셋 다 지침 규칙이다. 호출자가 각자 구현하면 점자 규정이
+// 레포 밖으로 흩어진다. 이 레포를 만든 이유가 그걸 막으려는 것이다.
+
+export interface Block { order: number; text: string }
+export interface Source { orig_page: number; blocks: Block[] }
+
+/** 32칸이 차면 그대로 자른다. 어절 단위 줄바꿈 규칙은 없다(조판 가이드 §1 확정). */
+function wrap(line: string, cols: number): string[] {
+  if (!line) return [''];
+  const out: string[] = [];
+  for (let i = 0; i < line.length; i += cols) out.push(line.slice(i, i + cols));
+  return out;
+}
+
+function hasPageRow(braillePage: number, on: string): boolean {
+  if (on === 'odd') return braillePage % 2 === 1;
+  if (on === 'even') return braillePage % 2 === 0;
+  return true;
+}
+
+/**
+ * 원본 쪽별 통 문자열 → 완성된 점자 면 배열. BRF 변환 직전 상태다.
+ *
+ * ★ 페이지행의 원본 번호 = **그 면 첫 줄이 속한 원본 쪽**(지침 1장2절2-2(4)).
+ * ★ 걸침 순번 = 그 원본 쪽이 **처음 나온 면부터 센 순번**(0부터).
+ *   지침 [예 1-7]이 105·107·109면에 없음·b·d를 붙이는 근거 — 페이지행이 홀수 면에만
+ *   찍혀 a(106)·c(108)가 안 보이는 것이지 순번이 건너뛴 게 아니다.
+ */
+export function buildPages(
+  sources: Source[],
+  footer = '',
+  startBraillePage = 1,
+  opts?: Partial<Options>,
+): string[][] {
+  const o = resolve(opts);
+  // 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
+  const flat: Array<[string, number]> = [];
+  sources.forEach((src, i) => {
+    const op = src.orig_page;
+    if (i > 0) flat.push([pageChangeLine(op, opts), op]);   // 첫 쪽 앞에는 두지 않는다
+    const blocks = [...(src.blocks ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const text = blocks.map((b) => b.text ?? '').join('');
+    for (const logical of text.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op]);
+  });
+
+  // 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
+  const pages: string[][] = [];
+  const firstSeen = new Map<number, number>();
+  let pos = 0;
+  while (pos < flat.length) {
+    while (pos < flat.length && flat[pos][0].trim() === '') pos++;   // 면 첫 줄의 빈 줄은 버린다
+    if (pos >= flat.length) break;
+    const idx = pages.length;
+    const bp = startBraillePage + idx;
+    const head = flat[pos][1];
+    const onCover = head <= o.coverPages;      // 표지 범위는 페이지행 생략
+    const hasRow = hasPageRow(bp, o.pageRowOn) && !onCover;
+    const cap = o.rows - (hasRow ? 1 : 0);
+    const body = flat.slice(pos, pos + cap).map(([ln]) => ln);
+    pos += cap;
+    if (!firstSeen.has(head)) firstSeen.set(head, idx);
+    while (body.length < cap) body.push('');
+    if (hasRow) body.push(pageRow(head, idx - (firstSeen.get(head) as number), bp, footer, opts));
+    pages.push(body);
+  }
+  return pages;
+}

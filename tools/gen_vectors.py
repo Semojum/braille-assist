@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT / "python"))
 sys.path.insert(0, "/home/pj14/v2/code/AI")   # ascii_to_unicode (벡터 작성 편의용, 런타임 의존 아님)
 
 from app.utils.braille_ascii import ascii_to_unicode  # noqa: E402
-from braille_assist import Options, page_change_line, page_row, to_brf_ascii  # noqa: E402
+from braille_assist import (Options, build_pages, page_change_line,  # noqa: E402
+                            page_row, to_brf_ascii)
 
 
 def U(brf: str) -> str:
@@ -93,8 +94,38 @@ BRF = [
 ]
 
 
+# ── build_pages ──────────────────────────────────────────────────────────────
+# 지침 [예 1-7] 재현이 핵심 벡터다 — 원본 72가 여러 면에 걸칠 때 105·107·109면에
+# 접두 없음·b·d가 붙는다. 페이지행이 홀수 면에만 찍혀 a(106)·c(108)가 안 보이는 것이지
+# 순번이 건너뛴 게 아니라는 것을 이 벡터가 고정한다.
+_LONG = "\n".join("⠁⠃⠉" for _ in range(103)) + "\n"
+_TWO_PAGES = [
+    {"orig_page": 7, "blocks": [{"order": 1, "text": "⠁" * 70 + "\n"}]},
+    {"orig_page": 8, "blocks": [{"order": 1, "text": "\n⠃⠃⠃\n\n" + "⠉" * 40 + "\n"}]},
+]
+
+BUILD = [
+    ("지침 [예 1-7] 걸침 — 72쪽이 105~109면", 
+     dict(sources=[{"orig_page": 72, "blocks": [{"order": 1, "text": _LONG}]}],
+          footer=FOOT_B, start_braille_page=105, opts=opt(page_row_on="odd")),
+     "지침 1장2절2-2(3)·[예 1-7] — 105 접두없음 · 107 b · 109 d"),
+    ("원본 두 쪽 · 변경선 삽입", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                             opts=opt(rows=6)), "지침 2장2절2-3 변경선 위치"),
+    ("꼬리말 없음", dict(sources=_TWO_PAGES, opts=opt(rows=6)), ""),
+    ("블록 order 정렬", dict(sources=[{"orig_page": 3, "blocks": [
+        {"order": 2, "text": "⠃⠃\n"}, {"order": 1, "text": "⠁⠁\n"}]}],
+        opts=opt(rows=4)), ""),
+    ("표지 범위는 페이지행 생략", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                            opts=opt(rows=6, cover_pages=7)), "조판 옵션 §5"),
+    ("페이지행 끔(짝수만)", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                        opts=opt(rows=6, page_row_on="even")), ""),
+    ("빈 입력", dict(sources=[], opts=opt(rows=6)), ""),
+]
+
+
 def build() -> dict:
-    out = {"version": "0.1.0", "cases": {"page_row": [], "page_change_line": [], "to_brf_ascii": []}}
+    out = {"version": "0.2.0", "cases": {"page_row": [], "page_change_line": [],
+                                         "to_brf_ascii": [], "build_pages": []}}
     for name, kw, src in PAGE_ROW:
         o = kw.pop("opts", None)
         got = page_row(**kw, opts=Options(**o) if o else Options())
@@ -106,6 +137,14 @@ def build() -> dict:
         o = kw.pop("opts", None)
         got = page_change_line(**kw, opts=Options(**o) if o else Options())
         out["cases"]["page_change_line"].append(
+            {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
+             **({"source": src} if src else {})})
+    for name, kw, src in BUILD:
+        o = kw.pop("opts", None)
+        got = build_pages(**kw, opts=Options(**o) if o else Options())
+        for pg in got:
+            assert len(pg) == (o or DEFAULT_OPTS)["rows"], f"{name}: 줄 수 불일치 {len(pg)}"
+        out["cases"]["build_pages"].append(
             {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
              **({"source": src} if src else {})})
     for name, arg, src in BRF:

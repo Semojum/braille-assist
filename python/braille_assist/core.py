@@ -164,3 +164,92 @@ def to_brf_ascii(braille: str) -> str:
             a = _CELL_TO_ASCII.get(ch)
             out.append(f"⟨{ord(ch):04X}⟩" if a is None else _UNSHIFT.get(a, a.lower()))
     return "".join(out)
+
+
+# ── 문서 조립 (2026-08-05 추가) ──────────────────────────────────────────────
+# 왜 여기 있나: ① 어느 면에 페이지행을 넣나 ② 걸침 순번(a·b·c)을 어떻게 세나
+# ③ 표지를 어디까지 빼나 — 셋 다 **지침 규칙**이다. 호출자(BE·FE)가 각자 구현하면
+# 점자 규정이 레포 밖으로 흩어진다. 이 레포를 만든 이유가 그걸 막으려는 것이다.
+# (2026-08-05 사용자 결정으로 함수 3개 → 4개. 초판은 "typeset 엔진 공용화 안 함"이었다.)
+
+
+def _wrap(line: str, cols: int) -> list[str]:
+    """32칸이 차면 **그대로 자른다**. 어절 단위 줄바꿈 규칙은 없다(조판 가이드 §1 확정).
+
+    잘린 낱말은 점역사가 스페이스·delete로 조정한다.
+    """
+    if not line:
+        return [""]
+    return [line[i:i + cols] for i in range(0, len(line), cols)]
+
+
+def _has_page_row(braille_page: int, on: str) -> bool:
+    if on == "odd":
+        return braille_page % 2 == 1
+    if on == "even":
+        return braille_page % 2 == 0
+    return True
+
+
+def build_pages(
+    sources: list,
+    footer: str = "",
+    start_braille_page: int = 1,
+    opts: Options = DEFAULT,
+) -> list:
+    """원본 쪽별 통 문자열 → **완성된 점자 면 배열**. BRF 변환 직전 상태다.
+
+    sources — `[{"orig_page": int, "blocks": [{"order": int, "text": str}]}]`
+      · `text`는 ProcessPage가 낸 통 문자열(조판성 줄바꿈은 `\n`으로 들어 있다)
+      · `blocks`는 `order`로 정렬해 이어 붙인다
+    footer — 이미 점역된 꼬리말 점자(없으면 빈 문자열). 이 레포는 점역하지 않는다.
+    start_braille_page — 첫 면의 점자 면 번호. 표지 다음이 1이다(지침 1장2절2-3(1)).
+
+    반환 — 면 배열. 각 면은 줄 배열이고 길이는 `opts.rows`다. 페이지행이 들어가는 면은
+    마지막 줄이 페이지행이고 본문이 `rows-1`줄이다.
+
+    ★ 페이지행의 원본 번호 = **그 면 첫 줄이 속한 원본 쪽**.
+      지침 1장2절2-2(4) "점자 한 페이지에 원본 페이지 변경선이 2개 이상 나올 때에는
+      해당 페이지에서 가장 먼저 나오는 원본 페이지 번호"와 같은 값이다.
+      ⚠ 원장 **C-10**으로 자문 예정 — 면이 원본 쪽 중간에서 시작하면서 변경선이 2개 이상일 때
+      두 해석이 갈릴 여지가 있다.
+    ★ 걸침 순번(cont_idx) = 그 원본 쪽이 **처음 나온 면부터 센 순번**(0부터).
+      지침 [예 1-7] 실물이 105·107·109면에 없음·b·d를 붙이는 근거다 — 페이지행이 홀수 면에만
+      찍혀 a(106면)·c(108면)가 건너뛰어진 것이지 순번이 건너뛴 게 아니다.
+    """
+    # 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
+    flat: list = []                       # (줄, 원본 쪽)
+    for i, src in enumerate(sources):
+        op = int(src["orig_page"])
+        if i > 0:                         # 첫 원본 쪽 앞에는 변경선을 두지 않는다
+            flat.append((page_change_line(op, opts), op))
+        blocks = sorted(src.get("blocks") or [], key=lambda b: b.get("order", 0))
+        text = "".join(b.get("text", "") for b in blocks)
+        for logical in text.split("\n"):
+            for w in _wrap(logical, opts.cols):
+                flat.append((w, op))
+
+    # 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
+    pages: list = []
+    first_seen: dict = {}                 # 원본 쪽 → 그 쪽이 처음 나온 면 번호(0-based)
+    pos = 0
+    while pos < len(flat):
+        while pos < len(flat) and not flat[pos][0].strip():
+            pos += 1                      # 면 첫 줄의 빈 줄은 버린다
+        if pos >= len(flat):
+            break
+        idx = len(pages)
+        bp = start_braille_page + idx
+        head_page = flat[pos][1]
+        # 표지 범위 안이면 페이지행을 생략한다(조판 옵션 §5).
+        on_cover = head_page <= opts.cover_pages
+        has_row = _has_page_row(bp, opts.page_row_on) and not on_cover
+        cap = opts.rows - (1 if has_row else 0)
+        body = [ln for ln, _ in flat[pos:pos + cap]]
+        pos += cap
+        first_seen.setdefault(head_page, idx)
+        body += [""] * (cap - len(body))
+        if has_row:
+            body.append(page_row(head_page, idx - first_seen[head_page], bp, footer, opts))
+        pages.append(body)
+    return pages

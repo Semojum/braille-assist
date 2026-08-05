@@ -177,4 +177,110 @@ public final class BrailleAssist {
             default: return Character.toLowerCase(a);
         }
     }
+
+    // ── 문서 조립 (2026-08-05 추가) ─────────────────────────────────────────
+    // 왜 여기 있나: ① 어느 면에 페이지행을 넣나 ② 걸침 순번(a·b·c)을 어떻게 세나
+    // ③ 표지를 어디까지 빼나 — 셋 다 지침 규칙이다. 호출자가 각자 구현하면 점자 규정이
+    // 레포 밖으로 흩어진다. 이 레포를 만든 이유가 그걸 막으려는 것이다.
+
+    /** 원본 쪽 하나의 통 문자열 묶음. blocks는 order로 정렬해 이어 붙인다. */
+    public static final class Source {
+        public final int origPage;
+        public final java.util.List<Block> blocks;
+
+        public Source(int origPage, java.util.List<Block> blocks) {
+            this.origPage = origPage;
+            this.blocks = blocks;
+        }
+    }
+
+    public static final class Block {
+        public final int order;
+        public final String text;
+
+        public Block(int order, String text) {
+            this.order = order;
+            this.text = text;
+        }
+    }
+
+    /** 32칸이 차면 그대로 자른다. 어절 단위 줄바꿈 규칙은 없다(조판 가이드 §1 확정). */
+    private static java.util.List<String> wrap(String line, int cols) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (line.isEmpty()) {
+            out.add("");
+            return out;
+        }
+        for (int i = 0; i < line.length(); i += cols) {
+            out.add(line.substring(i, Math.min(i + cols, line.length())));
+        }
+        return out;
+    }
+
+    private static boolean hasPageRow(int braillePage, String on) {
+        if (on.equals("odd")) return braillePage % 2 == 1;
+        if (on.equals("even")) return braillePage % 2 == 0;
+        return true;
+    }
+
+    /**
+     * 원본 쪽별 통 문자열 → 완성된 점자 면 배열. BRF 변환 직전 상태다.
+     *
+     * <p>★ 페이지행의 원본 번호 = <b>그 면 첫 줄이 속한 원본 쪽</b>(지침 1장2절2-2(4)).
+     * <p>★ 걸침 순번 = 그 원본 쪽이 <b>처음 나온 면부터 센 순번</b>(0부터).
+     * 지침 [예 1-7]이 105·107·109면에 없음·b·d를 붙이는 근거 — 페이지행이 홀수 면에만
+     * 찍혀 a(106)·c(108)가 안 보이는 것이지 순번이 건너뛴 게 아니다.
+     */
+    public static java.util.List<java.util.List<String>> buildPages(
+            java.util.List<Source> sources, String footer, int startBraillePage, Options opts) {
+        // 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        java.util.List<Integer> owner = new java.util.ArrayList<>();
+        for (int i = 0; i < sources.size(); i++) {
+            Source src = sources.get(i);
+            if (i > 0) {                       // 첫 원본 쪽 앞에는 변경선을 두지 않는다
+                lines.add(pageChangeLine(src.origPage, opts));
+                owner.add(src.origPage);
+            }
+            java.util.List<Block> bs = new java.util.ArrayList<>(
+                    src.blocks == null ? java.util.Collections.emptyList() : src.blocks);
+            bs.sort(java.util.Comparator.comparingInt(b -> b.order));
+            StringBuilder sb = new StringBuilder();
+            for (Block b : bs) sb.append(b.text == null ? "" : b.text);
+            for (String logical : sb.toString().split("\n", -1)) {
+                for (String w : wrap(logical, opts.cols)) {
+                    lines.add(w);
+                    owner.add(src.origPage);
+                }
+            }
+        }
+
+        // 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
+        java.util.List<java.util.List<String>> pages = new java.util.ArrayList<>();
+        java.util.Map<Integer, Integer> firstSeen = new java.util.HashMap<>();
+        int pos = 0;
+        while (pos < lines.size()) {
+            while (pos < lines.size() && lines.get(pos).trim().isEmpty()) pos++;  // 면 첫 빈 줄은 버린다
+            if (pos >= lines.size()) break;
+            int idx = pages.size();
+            int bp = startBraillePage + idx;
+            int head = owner.get(pos);
+            boolean onCover = head <= opts.coverPages;    // 표지 범위는 페이지행 생략
+            boolean hasRow = hasPageRow(bp, opts.pageRowOn) && !onCover;
+            int cap = opts.rows - (hasRow ? 1 : 0);
+            java.util.List<String> body = new java.util.ArrayList<>(
+                    lines.subList(pos, Math.min(pos + cap, lines.size())));
+            pos += cap;
+            firstSeen.putIfAbsent(head, idx);
+            while (body.size() < cap) body.add("");
+            if (hasRow) body.add(pageRow(head, idx - firstSeen.get(head), bp, footer, opts));
+            pages.add(body);
+        }
+        return pages;
+    }
+
+    public static java.util.List<java.util.List<String>> buildPages(
+            java.util.List<Source> sources, String footer) {
+        return buildPages(sources, footer, 1, Options.defaults());
+    }
 }
