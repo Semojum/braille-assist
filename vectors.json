@@ -394,6 +394,22 @@
     ],
     "to_brf_ascii": [
       {
+        "name": "64셀 전수",
+        "args": {
+          "braille": "⠀⠁⠂⠃⠄⠅⠆⠇⠈⠉⠊⠋⠌⠍⠎⠏⠐⠑⠒⠓⠔⠕⠖⠗⠘⠙⠚⠛⠜⠝⠞⠟⠠⠡⠢⠣⠤⠥⠦⠧⠨⠩⠪⠫⠬⠭⠮⠯⠰⠱⠲⠳⠴⠵⠶⠷⠸⠹⠺⠻⠼⠽⠾⠿"
+        },
+        "expect": " a1b'k2l@cif/msp\"e3h9o6r~djg>ntq,*5<-u8v.%{$+x!&;:4|0z7(_?w}#y)=",
+        "source": "BRF 표 잠금 — 정본 표(app/utils/braille_ascii.py)와 동일해야 한다"
+      },
+      {
+        "name": "실제 gold 한 줄",
+        "args": {
+          "braille": "⠠⠍⠓⠪⠁⠀⠇⠚⠽⠐⠆⠑⠛⠚⠧⠀⠼⠁⠃"
+        },
+        "expect": ",mh{a ljy\"2egjv #ab",
+        "source": "코퍼스 표본"
+      },
+      {
         "name": "면 번호 12",
         "args": {
           "braille": "⠼⠁⠃"
