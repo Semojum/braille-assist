@@ -14,8 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from braille_assist import (Options, build_pages, page_change_line,  # noqa: E402
-                            page_row, to_brf_ascii)
+from braille_assist import (Options, build_brf, build_pages,  # noqa: E402
+                            page_change_line, page_row, to_brf_ascii)
 
 # 지침 원문의 점자 예시는 Braille ASCII로 적혀 있다. 벡터를 원문 그대로 적기 위해
 # 여기서 유니코드로 되돌린다 — 라이브러리 런타임과는 무관한 **작성 편의용**이다.
@@ -140,9 +140,37 @@ BUILD = [
 ]
 
 
+# ── build_brf (BE 조립 JSON) ─────────────────────────────────────────────────
+# BE가 넘기는 형식 그대로. 세 언어가 **같은 .brf 문자열**을 내야 한다.
+_JOB_PAGES = [
+    {"orig_page_no": 7, "elements": [
+        {"id": "e1", "type": "title", "heading_level": 1, "text": "  ⠠⠕⠂⠠⠪⠃\n"},
+        {"id": "e2", "type": "text", "heading_level": 0, "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"}]},
+    {"orig_page_no": 8, "elements": [
+        {"id": "e3", "type": "text", "heading_level": 0, "text": "  ⠼⠃⠌⠼⠁\n"}]},
+]
+
+BRF_JOB = [
+    ("조립 JSON 기본(페이지행 켬)",
+     {"job_id": "j1", "options": {"include_page_number": True, "rows": 26, "cols": 32},
+      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
+     "기본 page_row_on=odd — 지침 1장2절2-1·원장 C-11"),
+    ("조립 JSON 페이지행 끔",
+     {"job_id": "j1", "options": {"include_page_number": False, "rows": 26, "cols": 32},
+      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
+     "include_page_number=false → 페이지행 생략(변경선은 유지)"),
+    ("조립 JSON 꼬리말·시작 면 지정",
+     {"options": {"include_page_number": True, "rows": 6, "cols": 32},
+      "footer_braille": FOOT_C, "start_braille_page": 105, "pages": _JOB_PAGES}, ""),
+    ("조립 JSON 빈 입력", {"pages": []}, ""),
+    ("조립 JSON options 생략(기본값)", {"pages": _JOB_PAGES}, ""),
+]
+
+
 def build() -> dict:
-    out = {"version": "0.2.0", "cases": {"page_row": [], "page_change_line": [],
-                                         "to_brf_ascii": [], "build_pages": []}}
+    out = {"version": "0.3.0", "cases": {"page_row": [], "page_change_line": [],
+                                         "to_brf_ascii": [], "build_pages": [],
+                                         "build_brf": []}}
     for name, kw, src in PAGE_ROW:
         o = kw.pop("opts", None)
         got = page_row(**kw, opts=Options(**o) if o else Options())
@@ -163,6 +191,10 @@ def build() -> dict:
             assert len(pg) == (o or DEFAULT_OPTS)["rows"], f"{name}: 줄 수 불일치 {len(pg)}"
         out["cases"]["build_pages"].append(
             {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
+             **({"source": src} if src else {})})
+    for name, job, src in BRF_JOB:
+        out["cases"]["build_brf"].append(
+            {"name": name, "args": {"job": job}, "expect": build_brf(job),
              **({"source": src} if src else {})})
     for name, arg, src in BRF:
         out["cases"]["to_brf_ascii"].append(

@@ -31,23 +31,24 @@ assert len(_BRAILLE_ASCII) == 64
 class Options:
     """조판 옵션. 1차 PoC 고정값이 기본값이다(조판 가이드 §5).
 
-    page_row_on — 페이지행을 넣는 면. 지침 1장2절2-1은 **홀수 면만**이라고 하지만
-    1차 고정값은 "매면"이다(원장 C-11로 점역사 자문 예정). 함수는 옵션만 처리하고
-    어느 면에 넣을지 판단은 호출자 몫이다.
+    page_row_on — 페이지행을 넣는 면. **기본은 홀수 면만**이다(2026-08-06 변경).
+      지침 1장2절2-1이 홀수 면만이라 하고, 점자 도서 82권 실측에서도 페이지행을 가진 면이
+      100% 홀수였다(원장 C-11 — 규정=관행 확정). 종전 기본값 "every"는 규정과 어긋났다.
+      `every`·`even`·`none`으로 바꿀 수 있다 — 고정이 아니라 기본값일 뿐이다.
     """
 
     cols: int = 32
     rows: int = 26
     show_orig_page: bool = True      # 변경선·페이지행 왼쪽의 원본 쪽 번호
     show_braille_page: bool = True   # 페이지행 오른쪽의 점자 면 번호
-    page_row_on: str = "every"       # every | odd | even
+    page_row_on: str = "odd"         # odd | every | even | none
     cover_pages: int = 0             # 이 쪽수까지는 표지 — 페이지행 생략
 
     def __post_init__(self) -> None:
         if self.cols < 8:
             raise ValueError(f"cols는 8 이상이어야 한다: {self.cols}")
-        if self.page_row_on not in ("every", "odd", "even"):
-            raise ValueError(f"page_row_on은 every|odd|even: {self.page_row_on!r}")
+        if self.page_row_on not in ("every", "odd", "even", "none"):
+            raise ValueError(f"page_row_on은 odd|every|even|none: {self.page_row_on!r}")
 
 
 DEFAULT = Options()
@@ -184,6 +185,8 @@ def _wrap(line: str, cols: int) -> list[str]:
 
 
 def _has_page_row(braille_page: int, on: str) -> bool:
+    if on == "none":
+        return False
     if on == "odd":
         return braille_page % 2 == 1
     if on == "even":
@@ -253,3 +256,66 @@ def build_pages(
             body.append(page_row(head_page, idx - first_seen[head_page], bp, footer, opts))
         pages.append(body)
     return pages
+
+
+# ── BE 조립 JSON 진입점 (2026-08-06) ────────────────────────────────────────
+# BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
+#
+#   {"job_id": "...",
+#    "options": {"include_page_number": bool, "rows": int, "cols": int},
+#    "footer_braille": "…",              # 이미 점역된 꼬리말(선택)
+#    "start_braille_page": 1,            # 첫 면 번호(선택, 기본 1)
+#    "pages": [{"orig_page_no": 1,
+#               "elements": [{"id","type","heading_level","text"}, …]}]}
+#
+# ★ `elements` 배열 **순서가 읽기 순서**다. `order` 필드는 없다(BE가 정렬해 담는다).
+# ★ `type`·`heading_level`은 **조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
+#   AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`). 여기서 또 넣으면 두 번 들어간다.
+#   두 필드는 오류 지목·나중 확장을 위해 그대로 받아 두기만 한다.
+_PAGE_ROW_BY_FLAG = {True: "odd", False: "none"}
+
+
+def options_from_job(job: dict) -> Options:
+    """BE 조립 JSON의 `options` → `Options`.
+
+    include_page_number — 점역사가 Job을 만들 때 고른 값(`jobs.insert_page_number`).
+      **끄면 페이지행을 넣지 않는다.** 원본 페이지 변경선은 유지한다 — 그건 쪽 번호가 아니라
+      쪽 경계 표시다.
+      ⚠ BE와 뜻을 맞춰야 한다. "원본 쪽 번호만 감추기"라면 `show_orig_page`로 옮겨야 한다.
+    """
+    o = job.get("options") or {}
+    return Options(
+        cols=int(o.get("cols") or 32),
+        rows=int(o.get("rows") or 26),
+        page_row_on=_PAGE_ROW_BY_FLAG.get(bool(o.get("include_page_number", True)), "odd"),
+    )
+
+
+def build_pages_from_job(job: dict) -> list:
+    """BE 조립 JSON → 점자 면 배열. `build_pages`의 얇은 어댑터다."""
+    sources = [
+        {
+            "orig_page": int(pg.get("orig_page_no", i + 1)),
+            # 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
+            "blocks": [{"order": k, "text": el.get("text", "")}
+                       for k, el in enumerate(pg.get("elements") or [])],
+        }
+        for i, pg in enumerate(job.get("pages") or [])
+    ]
+    return build_pages(
+        sources,
+        footer=job.get("footer_braille", "") or "",
+        start_braille_page=int(job.get("start_braille_page") or 1),
+        opts=options_from_job(job),
+    )
+
+
+def build_brf(job: dict) -> str:
+    """BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 `\n`).
+
+    BE는 이 문자열을 그대로 파일로 쓰면 된다. 점역은 하지 않는다 — 이미 점역된
+    통 문자열을 조판만 한다.
+    """
+    return "\n".join(to_brf_ascii(line)
+                      for page in build_pages_from_job(job)
+                      for line in page)

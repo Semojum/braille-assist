@@ -27,8 +27,12 @@ export interface Options {
   rows: number;
   showOrigPage: boolean;
   showBraillePage: boolean;
-  /** 페이지행을 넣는 면. 지침은 홀수 면만이지만 1차 고정값은 every(원장 C-11 자문 예정). */
-  pageRowOn: 'every' | 'odd' | 'even';
+  /**
+   * 페이지행을 넣는 면. **기본은 홀수 면만**(2026-08-06 변경).
+   * 지침 1장2절2-1이 홀수 면만이라 하고, 점자 도서 82권 실측에서도 페이지행을 가진 면이
+   * 100% 홀수였다(원장 C-11 — 규정=관행 확정). 고정이 아니라 기본값이다.
+   */
+  pageRowOn: 'every' | 'odd' | 'even' | 'none';
   coverPages: number;
 }
 
@@ -38,15 +42,15 @@ export const DEFAULT_OPTIONS: Options = {
   rows: 26,
   showOrigPage: true,
   showBraillePage: true,
-  pageRowOn: 'every',
+  pageRowOn: 'odd',
   coverPages: 0,
 };
 
 function resolve(opts?: Partial<Options>): Options {
   const o = { ...DEFAULT_OPTIONS, ...(opts ?? {}) };
   if (o.cols < 8) throw new Error(`cols는 8 이상이어야 한다: ${o.cols}`);
-  if (!['every', 'odd', 'even'].includes(o.pageRowOn))
-    throw new Error(`pageRowOn은 every|odd|even: ${o.pageRowOn}`);
+  if (!['every', 'odd', 'even', 'none'].includes(o.pageRowOn))
+    throw new Error(`pageRowOn은 odd|every|even|none: ${o.pageRowOn}`);
   return o;
 }
 
@@ -173,6 +177,7 @@ function wrap(line: string, cols: number): string[] {
 }
 
 function hasPageRow(braillePage: number, on: string): boolean {
+  if (on === 'none') return false;
   if (on === 'odd') return braillePage % 2 === 1;
   if (on === 'even') return braillePage % 2 === 0;
   return true;
@@ -224,4 +229,72 @@ export function buildPages(
     pages.push(body);
   }
   return pages;
+}
+
+
+// ── BE 조립 JSON 진입점 (2026-08-06) ────────────────────────────────────────
+// BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
+//
+// ★ `elements` 배열 **순서가 읽기 순서**다. `order` 필드는 없다(BE가 정렬해 담는다).
+// ★ `type`·`heading_level`은 **조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
+//   AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`). 여기서 또 넣으면 두 번 들어간다.
+export interface JobElement {
+  id?: string;
+  type?: string;
+  heading_level?: number;
+  text: string;
+}
+
+export interface JobPage {
+  orig_page_no: number;
+  elements: JobElement[];
+}
+
+export interface JobOptions {
+  include_page_number?: boolean;
+  rows?: number;
+  cols?: number;
+}
+
+export interface Job {
+  job_id?: string;
+  options?: JobOptions;
+  /** 이미 점역된 꼬리말 점자. 이 레포는 점역하지 않는다. */
+  footer_braille?: string;
+  start_braille_page?: number;
+  pages: JobPage[];
+}
+
+/**
+ * BE 조립 JSON의 options → Options.
+ *
+ * include_page_number — 점역사가 Job을 만들 때 고른 값. **끄면 페이지행을 넣지 않는다.**
+ * 원본 페이지 변경선은 유지한다 — 그건 쪽 번호가 아니라 쪽 경계 표시다.
+ */
+export function optionsFromJob(job: Job): Partial<Options> {
+  const o = job.options ?? {};
+  return {
+    cols: o.cols ?? 32,
+    rows: o.rows ?? 26,
+    pageRowOn: (o.include_page_number ?? true) ? 'odd' : 'none',
+  };
+}
+
+/** BE 조립 JSON → 점자 면 배열. buildPages의 얇은 어댑터다. */
+export function buildPagesFromJob(job: Job): string[][] {
+  const sources: Source[] = (job.pages ?? []).map((pg, i) => ({
+    orig_page: pg.orig_page_no ?? i + 1,
+    // 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
+    blocks: (pg.elements ?? []).map((el, k) => ({ order: k, text: el.text ?? '' })),
+  }));
+  return buildPages(sources, job.footer_braille ?? '',
+                    job.start_braille_page ?? 1, optionsFromJob(job));
+}
+
+/**
+ * BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 \n).
+ * 점역은 하지 않는다 — 이미 점역된 통 문자열을 조판만 한다.
+ */
+export function buildBrf(job: Job): string {
+  return buildPagesFromJob(job).flat().map(toBrfAscii).join('\n');
 }

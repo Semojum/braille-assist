@@ -34,15 +34,21 @@ public final class BrailleAssist {
         public final int rows;
         public final boolean showOrigPage;
         public final boolean showBraillePage;
-        /** 페이지행을 넣는 면. 지침은 홀수 면만이지만 1차 고정값은 every(원장 C-11 자문 예정). */
+        /**
+         * 페이지행을 넣는 면. <b>기본은 홀수 면만</b>(2026-08-06 변경).
+         * 지침 1장2절2-1이 홀수 면만이라 하고, 점자 도서 82권 실측에서도 페이지행을 가진 면이
+         * 100% 홀수였다(원장 C-11 — 규정=관행 확정). 고정이 아니라 기본값이다.
+         * 값: odd | every | even | none
+         */
         public final String pageRowOn;
         public final int coverPages;
 
         public Options(int cols, int rows, boolean showOrigPage, boolean showBraillePage,
                        String pageRowOn, int coverPages) {
             if (cols < 8) throw new IllegalArgumentException("cols는 8 이상이어야 한다: " + cols);
-            if (!pageRowOn.equals("every") && !pageRowOn.equals("odd") && !pageRowOn.equals("even"))
-                throw new IllegalArgumentException("pageRowOn은 every|odd|even: " + pageRowOn);
+            if (!pageRowOn.equals("every") && !pageRowOn.equals("odd")
+                    && !pageRowOn.equals("even") && !pageRowOn.equals("none"))
+                throw new IllegalArgumentException("pageRowOn은 odd|every|even|none: " + pageRowOn);
             this.cols = cols;
             this.rows = rows;
             this.showOrigPage = showOrigPage;
@@ -52,7 +58,7 @@ public final class BrailleAssist {
         }
 
         public static Options defaults() {
-            return new Options(32, 26, true, true, "every", 0);
+            return new Options(32, 26, true, true, "odd", 0);
         }
     }
 
@@ -218,6 +224,7 @@ public final class BrailleAssist {
     }
 
     private static boolean hasPageRow(int braillePage, String on) {
+        if (on.equals("none")) return false;
         if (on.equals("odd")) return braillePage % 2 == 1;
         if (on.equals("even")) return braillePage % 2 == 0;
         return true;
@@ -282,5 +289,110 @@ public final class BrailleAssist {
     public static java.util.List<java.util.List<String>> buildPages(
             java.util.List<Source> sources, String footer) {
         return buildPages(sources, footer, 1, Options.defaults());
+    }
+
+    // ── BE 조립 JSON 진입점 (2026-08-06) ────────────────────────────────────
+    // BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
+    //
+    // ★ elements 배열 **순서가 읽기 순서**다. order 필드는 없다(BE가 정렬해 담는다).
+    // ★ type·headingLevel은 **조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
+    //   AI가 이미 text에 넣어 보낸다(점자 공백 셀·\n). 여기서 또 넣으면 두 번 들어간다.
+    //   두 필드는 오류 지목·나중 확장을 위해 받아 두기만 한다.
+
+    /** 조립 JSON의 요소 하나. */
+    public static final class JobElement {
+        public final String id;
+        public final String type;
+        public final int headingLevel;
+        public final String text;
+
+        public JobElement(String id, String type, int headingLevel, String text) {
+            this.id = id;
+            this.type = type;
+            this.headingLevel = headingLevel;
+            this.text = text == null ? "" : text;
+        }
+
+        public JobElement(String text) { this(null, "text", 0, text); }
+    }
+
+    /** 원본 쪽 하나. elements 배열 순서가 읽기 순서다. */
+    public static final class JobPage {
+        public final int origPageNo;
+        public final java.util.List<JobElement> elements;
+
+        public JobPage(int origPageNo, java.util.List<JobElement> elements) {
+            this.origPageNo = origPageNo;
+            this.elements = elements == null ? java.util.Collections.emptyList() : elements;
+        }
+    }
+
+    /** 조립 JSON 전체. */
+    public static final class Job {
+        public final String jobId;
+        /** 점역사가 Job을 만들 때 고른 값. 끄면 페이지행을 넣지 않는다. */
+        public final boolean includePageNumber;
+        public final int rows;
+        public final int cols;
+        /** 이미 점역된 꼬리말 점자. 이 레포는 점역하지 않는다. */
+        public final String footerBraille;
+        public final int startBraillePage;
+        public final java.util.List<JobPage> pages;
+
+        public Job(String jobId, boolean includePageNumber, int rows, int cols,
+                   String footerBraille, int startBraillePage, java.util.List<JobPage> pages) {
+            this.jobId = jobId;
+            this.includePageNumber = includePageNumber;
+            this.rows = rows <= 0 ? 26 : rows;
+            this.cols = cols <= 0 ? 32 : cols;
+            this.footerBraille = footerBraille == null ? "" : footerBraille;
+            this.startBraillePage = startBraillePage <= 0 ? 1 : startBraillePage;
+            this.pages = pages == null ? java.util.Collections.emptyList() : pages;
+        }
+
+        public Job(java.util.List<JobPage> pages) { this(null, true, 26, 32, "", 1, pages); }
+    }
+
+    /**
+     * 조립 JSON → Options.
+     *
+     * <p>includePageNumber를 끄면 <b>페이지행을 넣지 않는다.</b> 원본 페이지 변경선은
+     * 유지한다 — 그건 쪽 번호가 아니라 쪽 경계 표시다.
+     */
+    public static Options optionsFromJob(Job job) {
+        return new Options(job.cols, job.rows, true, true,
+                           job.includePageNumber ? "odd" : "none", 0);
+    }
+
+    /** 조립 JSON → 점자 면 배열. buildPages의 얇은 어댑터다. */
+    public static java.util.List<java.util.List<String>> buildPagesFromJob(Job job) {
+        java.util.List<Source> sources = new java.util.ArrayList<>();
+        for (int i = 0; i < job.pages.size(); i++) {
+            JobPage pg = job.pages.get(i);
+            java.util.List<Block> blocks = new java.util.ArrayList<>();
+            for (int k = 0; k < pg.elements.size(); k++) {
+                // 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
+                blocks.add(new Block(k, pg.elements.get(k).text));
+            }
+            sources.add(new Source(pg.origPageNo > 0 ? pg.origPageNo : i + 1, blocks));
+        }
+        return buildPages(sources, job.footerBraille, job.startBraillePage, optionsFromJob(job));
+    }
+
+    /**
+     * 조립 JSON → <b>.brf 파일 내용</b>(BRF Braille ASCII, 줄바꿈 \n).
+     * 점역은 하지 않는다 — 이미 점역된 통 문자열을 조판만 한다.
+     */
+    public static String buildBrf(Job job) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (java.util.List<String> page : buildPagesFromJob(job)) {
+            for (String line : page) {
+                if (!first) sb.append('\n');
+                sb.append(toBrfAscii(line));
+                first = false;
+            }
+        }
+        return sb.toString();
     }
 }

@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { pageRow, pageChangeLine, toBrfAscii, buildPages } from '../src/index.ts';
+import { pageRow, pageChangeLine, toBrfAscii, buildPages, buildBrf } from '../src/index.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const data = JSON.parse(readFileSync(join(here, '..', '..', 'vectors.json'), 'utf8'));
@@ -20,6 +20,7 @@ const call = {
   to_brf_ascii: (a) => toBrfAscii(a.braille),
   build_pages: (a) => buildPages(a.sources, a.footer ?? '',
                                  a.start_braille_page ?? 1, toOpts(a.opts)),
+  build_brf: (a) => buildBrf(a.job),
 };
 
 let total = 0, fails = 0;

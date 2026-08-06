@@ -10,12 +10,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from braille_assist import (Options, build_pages, page_change_line,  # noqa: E402
-                            page_row, to_brf_ascii)
+from braille_assist import (Options, build_brf, build_pages,  # noqa: E402
+                            page_change_line, page_row, to_brf_ascii)
 
 VECTORS = Path(__file__).resolve().parent.parent / "vectors.json"
 FN = {"page_row": page_row, "page_change_line": page_change_line,
-      "to_brf_ascii": to_brf_ascii, "build_pages": build_pages}
+      "to_brf_ascii": to_brf_ascii, "build_pages": build_pages,
+      "build_brf": build_brf}
 
 
 def run() -> int:

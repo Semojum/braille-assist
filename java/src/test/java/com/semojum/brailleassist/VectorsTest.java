@@ -75,6 +75,37 @@ class VectorsTest {
                         a.has("start_braille_page") ? a.get("start_braille_page").asInt() : 1,
                         toOpts(a.get("opts"))));
             }
+            case "build_brf": {
+                JsonNode j = a.get("job");
+                JsonNode o = j.has("options") ? j.get("options") : null;
+                List<BrailleAssist.JobPage> pages = new ArrayList<>();
+                if (j.has("pages")) {
+                    for (JsonNode pg : j.get("pages")) {
+                        List<BrailleAssist.JobElement> els = new ArrayList<>();
+                        if (pg.has("elements")) {
+                            for (JsonNode el : pg.get("elements")) {
+                                els.add(new BrailleAssist.JobElement(
+                                        el.has("id") ? el.get("id").asText() : null,
+                                        el.has("type") ? el.get("type").asText() : "text",
+                                        el.has("heading_level") ? el.get("heading_level").asInt() : 0,
+                                        el.get("text").asText()));
+                            }
+                        }
+                        pages.add(new BrailleAssist.JobPage(
+                                pg.has("orig_page_no") ? pg.get("orig_page_no").asInt() : 0, els));
+                    }
+                }
+                BrailleAssist.Job job = new BrailleAssist.Job(
+                        j.has("job_id") ? j.get("job_id").asText() : null,
+                        o == null || !o.has("include_page_number")
+                                || o.get("include_page_number").asBoolean(),
+                        o != null && o.has("rows") ? o.get("rows").asInt() : 26,
+                        o != null && o.has("cols") ? o.get("cols").asInt() : 32,
+                        j.has("footer_braille") ? j.get("footer_braille").asText() : "",
+                        j.has("start_braille_page") ? j.get("start_braille_page").asInt() : 1,
+                        pages);
+                return BrailleAssist.buildBrf(job);
+            }
             default:
                 throw new IllegalArgumentException("모르는 함수: " + fname);
         }
