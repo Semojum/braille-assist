@@ -12,6 +12,9 @@ const toOpts = (o) => o && {
   cols: o.cols, rows: o.rows,
   showOrigPage: o.show_orig_page, showBraillePage: o.show_braille_page,
   pageRowOn: o.page_row_on, coverPages: o.cover_pages,
+  origPageStart: o.orig_page_start ?? null,
+  showChangeLine: o.show_change_line ?? true,
+  footerAlign: o.footer_align ?? 'center',
 };
 
 const call = {
@@ -19,7 +22,8 @@ const call = {
   page_change_line: (a) => pageChangeLine(a.orig_page, toOpts(a.opts)),
   to_brf_ascii: (a) => toBrfAscii(a.braille),
   build_pages: (a) => buildPages(a.sources, a.footer ?? '',
-                                 a.start_braille_page ?? 1, toOpts(a.opts)),
+                                 a.start_braille_page ?? 1, toOpts(a.opts),
+                                 a.footers ?? null),
   build_brf: (a) => buildBrf(a.job),
 };
 

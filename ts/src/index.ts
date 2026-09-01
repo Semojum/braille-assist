@@ -33,7 +33,14 @@ export interface Options {
    * 100% 홀수였다(원장 C-11 — 규정=관행 확정). 고정이 아니라 기본값이다.
    */
   pageRowOn: 'every' | 'odd' | 'even' | 'none';
+  /** 앞에서 이만큼의 **원본 페이지**가 표지. 점자 면 수가 아니다(2026-09-01 결정 C). */
   coverPages: number;
+  /** 표지 다음 첫 본문 원본 페이지에 붙일 번호. null이면 준 값 그대로. */
+  origPageStart: number | null;
+  /** 원본 페이지 변경선을 넣을지. showOrigPage가 꺼지면 함께 꺼진다(결정 D). */
+  showChangeLine: boolean;
+  /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다. */
+  footerAlign: 'center' | 'right';
 }
 
 /** 1차 PoC 고정값 (조판 가이드 §5). */
@@ -44,6 +51,9 @@ export const DEFAULT_OPTIONS: Options = {
   showBraillePage: true,
   pageRowOn: 'odd',
   coverPages: 0,
+  origPageStart: null,
+  showChangeLine: true,
+  footerAlign: 'center',
 };
 
 function resolve(opts?: Partial<Options>): Options {
@@ -114,7 +124,10 @@ export function pageRow(
     const hi = right ? n - right.length - 2 : n;
     const f = footer.length > hi - lo ? footer.slice(0, hi - lo) : footer;
     if (f) {
-      let start = (n - f.length + 1) >> 1; // ★ 올림 — 지침 실물로 확정
+      // 우측 정렬이면 번호와 두 칸 띄운 자리가 오른쪽 끝이다.
+      let start = o.footerAlign === 'right'
+        ? hi - f.length
+        : (n - f.length + 1) >> 1;          // ★ 올림 — 지침 실물로 확정
       start = Math.min(Math.max(start, lo), hi - f.length);
       for (let i = 0; i < f.length; i++) cells[start + i] = f[i];
     }
@@ -196,16 +209,32 @@ export function buildPages(
   footer = '',
   startBraillePage = 1,
   opts?: Partial<Options>,
+  /**
+   * `{점자 면 번호: 꼬리말 점자}`. 그 면만 이 값을 쓰고, 없는 면은 `footer`를 쓴다.
+   * "이 면부터 끝까지 / 이 면만"은 편집 시점의 뜻이라 여기서 풀지 않는다 — 호출자(FE)가
+   * 범위를 해석해 면별 값으로 펼쳐 넘긴다(2026-09-01 결정 E).
+   */
+  footers?: Record<number | string, string> | null,
 ): string[][] {
   const o = resolve(opts);
+  // JSON을 거쳐 오면 키가 문자열이다 — 세 구현이 같게 굴도록 정수로 맞춘다.
+  const fmap = new Map<number, string>();
+  for (const [k, v] of Object.entries(footers ?? {})) fmap.set(Number(k), v);
+  // 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
+  const withChange = o.showChangeLine && o.showOrigPage;
   // 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
-  const flat: Array<[string, number]> = [];
+  const flat: Array<[string, number, boolean]> = [];
   sources.forEach((src, i) => {
-    const op = src.orig_page;
-    if (i > 0) flat.push([pageChangeLine(op, opts), op]);   // 첫 쪽 앞에는 두지 않는다
+    // origPageStart가 있으면 표지 뒤 n번째 본문 원본 페이지를 다시 매긴다.
+    const op = o.origPageStart !== null && i >= o.coverPages
+      ? o.origPageStart + (i - o.coverPages)
+      : src.orig_page;
+    // ★ 표지 판정은 **순번**이다(결정 C). 쪽 번호로 보면 번호를 다시 매길 때 어긋난다.
+    const cover = i < o.coverPages;
+    if (i > 0 && withChange) flat.push([pageChangeLine(op, opts), op, cover]);
     const blocks = [...(src.blocks ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     const text = blocks.map((b) => b.text ?? '').join('');
-    for (const logical of text.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op]);
+    for (const logical of text.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op, cover]);
   });
 
   // 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
@@ -218,14 +247,17 @@ export function buildPages(
     const idx = pages.length;
     const bp = startBraillePage + idx;
     const head = flat[pos][1];
-    const onCover = head <= o.coverPages;      // 표지 범위는 페이지행 생략
+    const onCover = flat[pos][2];              // 표지 범위는 페이지행 생략
     const hasRow = hasPageRow(bp, o.pageRowOn) && !onCover;
     const cap = o.rows - (hasRow ? 1 : 0);
     const body = flat.slice(pos, pos + cap).map(([ln]) => ln);
     pos += cap;
     if (!firstSeen.has(head)) firstSeen.set(head, idx);
     while (body.length < cap) body.push('');
-    if (hasRow) body.push(pageRow(head, idx - (firstSeen.get(head) as number), bp, footer, opts));
+    if (hasRow) {
+      const f = fmap.get(bp) ?? footer;
+      body.push(pageRow(head, idx - (firstSeen.get(head) as number), bp, f, opts));
+    }
     pages.push(body);
   }
   return pages;
@@ -252,8 +284,15 @@ export interface JobPage {
 
 export interface JobOptions {
   include_page_number?: boolean;
+  page_row_on?: 'every' | 'odd' | 'even' | 'none';
   rows?: number;
   cols?: number;
+  show_orig_page?: boolean;
+  show_braille_page?: boolean;
+  cover_pages?: number;
+  orig_page_start?: number | null;
+  show_change_line?: boolean;
+  footer_align?: 'center' | 'right';
 }
 
 export interface Job {
@@ -261,6 +300,8 @@ export interface Job {
   options?: JobOptions;
   /** 이미 점역된 꼬리말 점자. 이 레포는 점역하지 않는다. */
   footer_braille?: string;
+  /** 면별 꼬리말. `{점자 면 번호: 꼬리말 점자}` — 없는 면은 footer_braille를 쓴다. */
+  footers_braille?: Record<string, string>;
   start_braille_page?: number;
   pages: JobPage[];
 }
@@ -273,10 +314,18 @@ export interface Job {
  */
 export function optionsFromJob(job: Job): Partial<Options> {
   const o = job.options ?? {};
+  // include_page_number(켜기·끄기)와 page_row_on(어느 면)은 **같은 스위치**다(결정 B).
+  const on = (o.include_page_number ?? true) ? (o.page_row_on ?? 'odd') : 'none';
   return {
     cols: o.cols ?? 32,
     rows: o.rows ?? 26,
-    pageRowOn: (o.include_page_number ?? true) ? 'odd' : 'none',
+    showOrigPage: o.show_orig_page ?? true,
+    showBraillePage: o.show_braille_page ?? true,
+    pageRowOn: on,
+    coverPages: o.cover_pages ?? 0,
+    origPageStart: o.orig_page_start ?? null,
+    showChangeLine: o.show_change_line ?? true,
+    footerAlign: o.footer_align ?? 'center',
   };
 }
 
@@ -288,7 +337,8 @@ export function buildPagesFromJob(job: Job): string[][] {
     blocks: (pg.elements ?? []).map((el, k) => ({ order: k, text: el.text ?? '' })),
   }));
   return buildPages(sources, job.footer_braille ?? '',
-                    job.start_braille_page ?? 1, optionsFromJob(job));
+                    job.start_braille_page ?? 1, optionsFromJob(job),
+                    job.footers_braille ?? null);
 }
 
 /**

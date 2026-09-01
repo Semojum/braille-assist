@@ -35,20 +35,43 @@ class Options:
       지침 1장2절2-1이 홀수 면만이라 하고, 점자 도서 82권 실측에서도 페이지행을 가진 면이
       100% 홀수였다(원장 C-11 — 규정=관행 확정). 종전 기본값 "every"는 규정과 어긋났다.
       `every`·`even`·`none`으로 바꿀 수 있다 — 고정이 아니라 기본값일 뿐이다.
+
+    cover_pages — **원본 페이지 개수**다. 점자 면 수가 아니다(2026-09-01 확정).
+      앞에서 이만큼의 원본 페이지를 표지로 보고 ① 페이지행을 넣지 않고 ② 본문 번호를
+      그 뒤부터 센다. `orig_page_start`와 함께 계산된다.
+
+    orig_page_start — 표지 다음 첫 본문 원본 페이지에 붙일 번호.
+      None이면 `sources`가 준 `orig_page`를 그대로 쓴다(종전 동작).
+      값을 주면 **표지 뒤 n번째 원본 페이지 = orig_page_start + n** 으로 다시 매긴다.
+
+    show_change_line — 원본 페이지 변경선(원본 페이지 내용이 끝난 다음 줄, 새 원본 페이지
+      번호만 적는 줄). 끄면 그 줄을 아예 넣지 않는다.
+      ⚠ `show_orig_page`를 끄면 변경선에 적을 번호가 없어 `⠤`만 남은 빈 줄이 된다.
+      그래서 `show_orig_page=False`면 변경선도 함께 꺼진다(2026-09-01 결정 D).
+
+    footer_align — 꼬리말 정렬. `center`(지침 1장3-1 기본)와 `right`.
+      right는 점자 페이지 번호 왼쪽에 **두 칸을 띄운 자리**가 오른쪽 끝이다(항목 사이 두 칸 이상).
     """
 
     cols: int = 32
     rows: int = 26
-    show_orig_page: bool = True      # 변경선·페이지행 왼쪽의 원본 쪽 번호
-    show_braille_page: bool = True   # 페이지행 오른쪽의 점자 면 번호
+    show_orig_page: bool = True      # 페이지행 왼쪽의 원본 페이지 번호
+    show_braille_page: bool = True   # 페이지행 오른쪽의 점자 페이지 번호
     page_row_on: str = "odd"         # odd | every | even | none
-    cover_pages: int = 0             # 이 쪽수까지는 표지 — 페이지행 생략
+    cover_pages: int = 0             # 앞에서 이만큼의 **원본 페이지**가 표지 (아래 주석)
+    orig_page_start: int | None = None   # 본문 첫 원본 페이지에 붙일 번호. None이면 준 값 그대로
+    show_change_line: bool = True    # 원본 페이지 변경선을 넣을지
+    footer_align: str = "center"     # center | right
 
     def __post_init__(self) -> None:
         if self.cols < 8:
             raise ValueError(f"cols는 8 이상이어야 한다: {self.cols}")
         if self.page_row_on not in ("every", "odd", "even", "none"):
             raise ValueError(f"page_row_on은 odd|every|even|none: {self.page_row_on!r}")
+        if self.footer_align not in ("center", "right"):
+            raise ValueError(f"footer_align은 center|right: {self.footer_align!r}")
+        if self.cover_pages < 0:
+            raise ValueError(f"cover_pages는 0 이상이어야 한다: {self.cover_pages}")
 
 
 DEFAULT = Options()
@@ -122,7 +145,10 @@ def page_row(
         room = hi - lo
         f = footer[:room] if len(footer) > room else footer
         if f:
-            start = (n - len(f) + 1) // 2          # ★ 올림 — 지침 실물로 확정
+            if opts.footer_align == "right":
+                start = hi - len(f)                # 오른쪽 끝(번호와 두 칸 띄운 자리)에 붙인다
+            else:
+                start = (n - len(f) + 1) // 2      # ★ 올림 — 지침 실물로 확정
             start = min(max(start, lo), hi - len(f))
             for i, c in enumerate(f):
                 cells[start + i] = c
@@ -194,11 +220,29 @@ def _has_page_row(braille_page: int, on: str) -> bool:
     return True
 
 
+def _renumber(sources: list, opts: Options) -> list:
+    """`orig_page_start`가 있으면 원본 페이지 번호를 다시 매긴다.
+
+    표지(`cover_pages`개)는 준 번호를 그대로 두고, 그 뒤 n번째 본문 원본 페이지에
+    `orig_page_start + n`을 붙인다. None이면 아무것도 하지 않는다.
+    """
+    if opts.orig_page_start is None:
+        return sources
+    out = []
+    for i, src in enumerate(sources):
+        s = dict(src)
+        if i >= opts.cover_pages:
+            s["orig_page"] = opts.orig_page_start + (i - opts.cover_pages)
+        out.append(s)
+    return out
+
+
 def build_pages(
     sources: list,
     footer: str = "",
     start_braille_page: int = 1,
     opts: Options = DEFAULT,
+    footers: dict | None = None,
 ) -> list:
     """원본 쪽별 통 문자열 → **완성된 점자 면 배열**. BRF 변환 직전 상태다.
 
@@ -206,11 +250,16 @@ def build_pages(
       · `text`는 ProcessPage가 낸 통 문자열(조판성 줄바꿈은 `\n`으로 들어 있다)
       · `blocks`는 `order`로 정렬해 이어 붙인다
     footer — 이미 점역된 꼬리말 점자(없으면 빈 문자열). 이 레포는 점역하지 않는다.
+    footers — `{점자 면 번호: 꼬리말 점자}`. 그 면만 이 값을 쓰고, 없는 면은 `footer`를 쓴다.
+      "이 면부터 끝까지 / 이 면만"은 **편집 시점의 뜻**이라 여기서 풀지 않는다.
+      호출자(FE)가 범위를 해석해 면별 값으로 펼쳐 넘긴다(2026-09-01 결정 E).
     start_braille_page — 첫 면의 점자 면 번호. 표지 다음이 1이다(지침 1장2절2-3(1)).
 
     반환 — 면 배열. 각 면은 줄 배열이고 길이는 `opts.rows`다. 페이지행이 들어가는 면은
     마지막 줄이 페이지행이고 본문이 `rows-1`줄이다.
 
+    ★ 표지 판정은 `sources`의 **순번**이다 — 앞에서 `cover_pages`개가 표지다.
+      쪽 번호로 보지 않는다(번호가 1부터가 아니거나 다시 매기면 어긋난다).
     ★ 페이지행의 원본 번호 = **그 면 첫 줄이 속한 원본 쪽**.
       지침 1장2절2-2(4) "점자 한 페이지에 원본 페이지 변경선이 2개 이상 나올 때에는
       해당 페이지에서 가장 먼저 나오는 원본 페이지 번호"와 같은 값이다.
@@ -220,17 +269,25 @@ def build_pages(
       지침 [예 1-7] 실물이 105·107·109면에 없음·b·d를 붙이는 근거다 — 페이지행이 홀수 면에만
       찍혀 a(106면)·c(108면)가 건너뛰어진 것이지 순번이 건너뛴 게 아니다.
     """
+    # JSON을 거쳐 오면 키가 문자열이다("2"). 세 구현이 같게 굴도록 여기서 정수로 맞춘다.
+    fmap = {int(k): v for k, v in (footers or {}).items()}
     # 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
-    flat: list = []                       # (줄, 원본 쪽)
+    sources = _renumber(sources, opts)
+    # 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
+    with_change = opts.show_change_line and opts.show_orig_page
+    flat: list = []                       # (줄, 원본 쪽, 표지인가)
     for i, src in enumerate(sources):
         op = int(src["orig_page"])
-        if i > 0:                         # 첫 원본 쪽 앞에는 변경선을 두지 않는다
-            flat.append((page_change_line(op, opts), op))
+        # ★ 표지 판정은 **순번**이다(2026-09-01 결정 C). 종전에는 `쪽 번호 <= cover_pages`로
+        #   봤는데, 번호가 1부터 시작하지 않거나 orig_page_start로 다시 매기면 어긋난다.
+        cover = i < opts.cover_pages
+        if i > 0 and with_change:         # 첫 원본 쪽 앞에는 변경선을 두지 않는다
+            flat.append((page_change_line(op, opts), op, cover))
         blocks = sorted(src.get("blocks") or [], key=lambda b: b.get("order", 0))
         text = "".join(b.get("text", "") for b in blocks)
         for logical in text.split("\n"):
             for w in _wrap(logical, opts.cols):
-                flat.append((w, op))
+                flat.append((w, op, cover))
 
     # 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
     pages: list = []
@@ -245,15 +302,16 @@ def build_pages(
         bp = start_braille_page + idx
         head_page = flat[pos][1]
         # 표지 범위 안이면 페이지행을 생략한다(조판 옵션 §5).
-        on_cover = head_page <= opts.cover_pages
+        on_cover = flat[pos][2]
         has_row = _has_page_row(bp, opts.page_row_on) and not on_cover
         cap = opts.rows - (1 if has_row else 0)
-        body = [ln for ln, _ in flat[pos:pos + cap]]
+        body = [ln for ln, _, _ in flat[pos:pos + cap]]
         pos += cap
         first_seen.setdefault(head_page, idx)
         body += [""] * (cap - len(body))
         if has_row:
-            body.append(page_row(head_page, idx - first_seen[head_page], bp, footer, opts))
+            f = fmap.get(bp, footer)
+            body.append(page_row(head_page, idx - first_seen[head_page], bp, f, opts))
         pages.append(body)
     return pages
 
@@ -262,8 +320,13 @@ def build_pages(
 # BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
 #
 #   {"job_id": "...",
-#    "options": {"include_page_number": bool, "rows": int, "cols": int},
-#    "footer_braille": "…",              # 이미 점역된 꼬리말(선택)
+#    "options": {"include_page_number": bool, "page_row_on": "odd|every|even|none",
+#                "cols": 32, "rows": 26,
+#                "show_orig_page": bool, "show_braille_page": bool,
+#                "cover_pages": 0, "orig_page_start": null,
+#                "show_change_line": bool, "footer_align": "center|right"},
+#    "footer_braille": "…",              # 문서 기본 꼬리말(이미 점역됨, 선택)
+#    "footers_braille": {"3": "…"},      # 면별 꼬리말(점자 면 번호 → 꼬리말, 선택)
 #    "start_braille_page": 1,            # 첫 면 번호(선택, 기본 1)
 #    "pages": [{"orig_page_no": 1,
 #               "elements": [{"id","type","heading_level","text"}, …]}]}
@@ -272,22 +335,30 @@ def build_pages(
 # ★ `type`·`heading_level`은 **조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
 #   AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`). 여기서 또 넣으면 두 번 들어간다.
 #   두 필드는 오류 지목·나중 확장을 위해 그대로 받아 두기만 한다.
-_PAGE_ROW_BY_FLAG = {True: "odd", False: "none"}
-
-
 def options_from_job(job: dict) -> Options:
     """BE 조립 JSON의 `options` → `Options`.
 
-    include_page_number — 점역사가 Job을 만들 때 고른 값(`jobs.insert_page_number`).
-      **끄면 페이지행을 넣지 않는다.** 원본 페이지 변경선은 유지한다 — 그건 쪽 번호가 아니라
-      쪽 경계 표시다.
-      ⚠ BE와 뜻을 맞춰야 한다. "원본 쪽 번호만 감추기"라면 `show_orig_page`로 옮겨야 한다.
+    2026-09-01 개편 전에는 `cols·rows·include_page_number` 셋만 읽었다. Options에 있어도
+    Job에서 안 읽히면 죽은 값이라, 조판 설정 화면이 쓰는 항목을 전부 여기로 연결했다.
+
+    page_row_on — `include_page_number`(켜기·끄기)와 `page_row_on`(어느 면)이 **같은 스위치**다.
+      끄면 `none`, 켜면 `page_row_on`(기본 `odd`). 화면에서도 토글 하나로 합친다(결정 B).
     """
     o = job.get("options") or {}
+    on = str(o.get("page_row_on") or "odd")
+    if not bool(o.get("include_page_number", True)):
+        on = "none"
+    start = o.get("orig_page_start")
     return Options(
         cols=int(o.get("cols") or 32),
         rows=int(o.get("rows") or 26),
-        page_row_on=_PAGE_ROW_BY_FLAG.get(bool(o.get("include_page_number", True)), "odd"),
+        show_orig_page=bool(o.get("show_orig_page", True)),
+        show_braille_page=bool(o.get("show_braille_page", True)),
+        page_row_on=on,
+        cover_pages=int(o.get("cover_pages") or 0),
+        orig_page_start=None if start in (None, "") else int(start),
+        show_change_line=bool(o.get("show_change_line", True)),
+        footer_align=str(o.get("footer_align") or "center"),
     )
 
 
@@ -302,11 +373,15 @@ def build_pages_from_job(job: dict) -> list:
         }
         for i, pg in enumerate(job.get("pages") or [])
     ]
+    # 면별 꼬리말 — 키가 문자열로 올 수 있어(JSON) 정수로 맞춘다.
+    raw = job.get("footers_braille") or {}
+    footers = {int(k): v for k, v in raw.items()} if raw else None
     return build_pages(
         sources,
         footer=job.get("footer_braille", "") or "",
         start_braille_page=int(job.get("start_braille_page") or 1),
         opts=options_from_job(job),
+        footers=footers,
     )
 
 
