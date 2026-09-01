@@ -13,14 +13,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
-sys.path.insert(0, "/home/pj14/v2/code/AI")   # ascii_to_unicode (벡터 작성 편의용, 런타임 의존 아님)
 
-from app.utils.braille_ascii import ascii_to_unicode  # noqa: E402
-from braille_assist import Options, page_change_line, page_row, to_brf_ascii  # noqa: E402
+from braille_assist import (Options, build_brf, build_pages,  # noqa: E402
+                            page_change_line, page_row, to_brf_ascii)
+
+# 지침 원문의 점자 예시는 Braille ASCII로 적혀 있다. 벡터를 원문 그대로 적기 위해
+# 여기서 유니코드로 되돌린다 — 라이브러리 런타임과는 무관한 **작성 편의용**이다.
+# (`to_brf_ascii`의 역방향이라 표가 같아야 한다. 표가 어긋나면 지침 근거 케이스가 먼저 깨진다.)
+_SHIFT = {"`": "@", "{": "[", "|": "\\", "}": "]", "~": "^"}
+_ASCII_TO_CELL = {ch: chr(0x2800 + i) for i, ch in enumerate(
+    " A1B'K2L@CIF/MSP"
+    '"E3H9O6R^DJG>NTQ'
+    ",*5<-U8V.%[$+X!&"
+    ";:4\\0Z7(_?W]#Y)=")}
 
 
 def U(brf: str) -> str:
-    return ascii_to_unicode(brf, backtick="space")
+    """Braille ASCII → 유니코드 점자. 지침 원문 관례상 백틱은 **빈칸**이다."""
+    out = []
+    for ch in brf:
+        if ch == "\n":
+            out.append("\n")
+        elif ch in (" ", "`"):
+            out.append("⠀")
+        else:
+            out.append(_ASCII_TO_CELL[_SHIFT.get(ch) or ch.upper()])
+    return "".join(out)
 
 
 FOOT_A = U("0,i4`c<w`^1@*")        # [예 1-6] 꼬리말 13칸
@@ -28,7 +46,8 @@ FOOT_B = U(",8ir^a0'w`@].nja")     # [예 1-7] 꼬리말 16칸
 FOOT_C = U("es\"oe1")              # [예 1-8] 꼬리말 6칸
 
 DEFAULT_OPTS = {"cols": 32, "rows": 26, "show_orig_page": True,
-                "show_braille_page": True, "page_row_on": "every", "cover_pages": 0}
+                "show_braille_page": True, "page_row_on": "every", "cover_pages": 0,
+                "orig_page_start": None, "show_change_line": True, "footer_align": "center"}
 
 
 def opt(**kw):
@@ -75,7 +94,15 @@ CHANGE_LINE = [
     ("폭 40칸", dict(orig_page=8, opts=opt(cols=40)), ""),
 ]
 
+# ★ 64셀 전수 — BRF 표가 한 칸이라도 어긋나면 여기서 잡힌다. 표는 이 레포에서 새로 만든 것이
+#   아니라 `code/AI/app/utils/braille_ascii.py`의 정본을 옮긴 것이고, gold 코퍼스
+#   2,546,903셀 대조에서 불일치 0으로 확인했다(2026-08-05). 그 대조는 코퍼스가 있어야
+#   돌아가므로 CI에서는 이 전수 벡터가 대신 지킨다.
+_ALL_CELLS = "".join(chr(0x2800 + i) for i in range(64))
+
 BRF = [
+    ("64셀 전수", _ALL_CELLS, "BRF 표 잠금 — 정본 표(app/utils/braille_ascii.py)와 동일해야 한다"),
+    ("실제 gold 한 줄", "⠠⠍⠓⠪⠁⠀⠇⠚⠽⠐⠆⠑⠛⠚⠧⠀⠼⠁⠃", "코퍼스 표본"),
     ("면 번호 12", "⠼⠁⠃", "조판 가이드 §3"),
     ("페이지행 전체", page_row(7, 0, 12, ""), "공백 셀은 리터럴 스페이스"),
     ("변경선 전체", page_change_line(8), "조판 가이드 §3"),
@@ -85,8 +112,90 @@ BRF = [
 ]
 
 
+# ── build_pages ──────────────────────────────────────────────────────────────
+# 지침 [예 1-7] 재현이 핵심 벡터다 — 원본 72가 여러 면에 걸칠 때 105·107·109면에
+# 접두 없음·b·d가 붙는다. 페이지행이 홀수 면에만 찍혀 a(106)·c(108)가 안 보이는 것이지
+# 순번이 건너뛴 게 아니라는 것을 이 벡터가 고정한다.
+_LONG = "\n".join("⠁⠃⠉" for _ in range(103)) + "\n"
+_TWO_PAGES = [
+    {"orig_page": 7, "blocks": [{"order": 1, "text": "⠁" * 70 + "\n"}]},
+    {"orig_page": 8, "blocks": [{"order": 1, "text": "\n⠃⠃⠃\n\n" + "⠉" * 40 + "\n"}]},
+]
+
+BUILD = [
+    ("지침 [예 1-7] 걸침 — 72쪽이 105~109면", 
+     dict(sources=[{"orig_page": 72, "blocks": [{"order": 1, "text": _LONG}]}],
+          footer=FOOT_B, start_braille_page=105, opts=opt(page_row_on="odd")),
+     "지침 1장2절2-2(3)·[예 1-7] — 105 접두없음 · 107 b · 109 d"),
+    ("원본 두 쪽 · 변경선 삽입", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                             opts=opt(rows=6)), "지침 2장2절2-3 변경선 위치"),
+    ("꼬리말 없음", dict(sources=_TWO_PAGES, opts=opt(rows=6)), ""),
+    ("블록 order 정렬", dict(sources=[{"orig_page": 3, "blocks": [
+        {"order": 2, "text": "⠃⠃\n"}, {"order": 1, "text": "⠁⠁\n"}]}],
+        opts=opt(rows=4)), ""),
+    # 2026-09-01 결정 C — 표지는 **순번**으로 센다(앞에서 n개). 종전 벡터는 쪽 번호로
+    # 비교하던 시절 값(cover_pages=7, 원본 7·8쪽)이라 새 규칙에서는 뜻이 달라진다.
+    ("표지 범위는 페이지행 생략", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                            opts=opt(rows=6, cover_pages=1)), "조판 옵션 §5"),
+    ("꼬리말 우측 정렬", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                       opts=opt(rows=6, footer_align="right")), ""),
+    ("원본 페이지 변경선 끔", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                          opts=opt(rows=6, show_change_line=False)), ""),
+    ("원본 페이지 번호 다시 매기기", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                             opts=opt(rows=6, cover_pages=1, orig_page_start=20)), ""),
+    ("면별 꼬리말", dict(sources=_TWO_PAGES, footer=FOOT_C, footers={2: FOOT_A},
+                    opts=opt(rows=6)), ""),
+    ("페이지행 끔(짝수만)", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                        opts=opt(rows=6, page_row_on="even")), ""),
+    ("빈 입력", dict(sources=[], opts=opt(rows=6)), ""),
+]
+
+
+# ── build_brf (BE 조립 JSON) ─────────────────────────────────────────────────
+# BE가 넘기는 형식 그대로. 세 언어가 **같은 .brf 문자열**을 내야 한다.
+_JOB_PAGES = [
+    {"orig_page_no": 7, "elements": [
+        {"id": "e1", "type": "title", "heading_level": 1, "text": "  ⠠⠕⠂⠠⠪⠃\n"},
+        {"id": "e2", "type": "text", "heading_level": 0, "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"}]},
+    {"orig_page_no": 8, "elements": [
+        {"id": "e3", "type": "text", "heading_level": 0, "text": "  ⠼⠃⠌⠼⠁\n"}]},
+]
+
+BRF_JOB = [
+    ("조립 JSON 기본(페이지행 켬)",
+     {"job_id": "j1", "options": {"include_page_number": True, "rows": 26, "cols": 32},
+      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
+     "기본 page_row_on=odd — 지침 1장2절2-1·원장 C-11"),
+    ("조립 JSON 새 조판 옵션 전부",
+     {"job_id": "j2",
+      "options": {"include_page_number": True, "page_row_on": "every", "rows": 6, "cols": 32,
+                  "show_orig_page": True, "show_braille_page": True,
+                  "cover_pages": 1, "orig_page_start": 20,
+                  "show_change_line": True, "footer_align": "right"},
+      "footer_braille": FOOT_C, "footers_braille": {"2": FOOT_A},
+      "start_braille_page": 1, "pages": _JOB_PAGES},
+     "2026-09-01 결정 B·C·D·E — 표지 순번·번호 재매김·우측 정렬·면별 꼬리말"),
+    ("조립 JSON 변경선 끔",
+     {"options": {"include_page_number": True, "rows": 6, "cols": 32,
+                  "show_change_line": False},
+      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
+     "show_change_line=false → 원본 페이지 변경선 생략(결정 D)"),
+    ("조립 JSON 페이지행 끔",
+     {"job_id": "j1", "options": {"include_page_number": False, "rows": 26, "cols": 32},
+      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
+     "include_page_number=false → 페이지행 생략(변경선은 유지)"),
+    ("조립 JSON 꼬리말·시작 면 지정",
+     {"options": {"include_page_number": True, "rows": 6, "cols": 32},
+      "footer_braille": FOOT_C, "start_braille_page": 105, "pages": _JOB_PAGES}, ""),
+    ("조립 JSON 빈 입력", {"pages": []}, ""),
+    ("조립 JSON options 생략(기본값)", {"pages": _JOB_PAGES}, ""),
+]
+
+
 def build() -> dict:
-    out = {"version": "0.1.0", "cases": {"page_row": [], "page_change_line": [], "to_brf_ascii": []}}
+    out = {"version": "0.3.0", "cases": {"page_row": [], "page_change_line": [],
+                                         "to_brf_ascii": [], "build_pages": [],
+                                         "build_brf": []}}
     for name, kw, src in PAGE_ROW:
         o = kw.pop("opts", None)
         got = page_row(**kw, opts=Options(**o) if o else Options())
@@ -99,6 +208,18 @@ def build() -> dict:
         got = page_change_line(**kw, opts=Options(**o) if o else Options())
         out["cases"]["page_change_line"].append(
             {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
+             **({"source": src} if src else {})})
+    for name, kw, src in BUILD:
+        o = kw.pop("opts", None)
+        got = build_pages(**kw, opts=Options(**o) if o else Options())
+        for pg in got:
+            assert len(pg) == (o or DEFAULT_OPTS)["rows"], f"{name}: 줄 수 불일치 {len(pg)}"
+        out["cases"]["build_pages"].append(
+            {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
+             **({"source": src} if src else {})})
+    for name, job, src in BRF_JOB:
+        out["cases"]["build_brf"].append(
+            {"name": name, "args": {"job": job}, "expect": build_brf(job),
              **({"source": src} if src else {})})
     for name, arg, src in BRF:
         out["cases"]["to_brf_ascii"].append(
