@@ -46,7 +46,8 @@ FOOT_B = U(",8ir^a0'w`@].nja")     # [예 1-7] 꼬리말 16칸
 FOOT_C = U("es\"oe1")              # [예 1-8] 꼬리말 6칸
 
 DEFAULT_OPTS = {"cols": 32, "rows": 26, "show_orig_page": True,
-                "show_braille_page": True, "page_row_on": "every", "cover_pages": 0}
+                "show_braille_page": True, "page_row_on": "every", "cover_pages": 0,
+                "orig_page_start": None, "show_change_line": True, "footer_align": "center"}
 
 
 def opt(**kw):
@@ -132,8 +133,18 @@ BUILD = [
     ("블록 order 정렬", dict(sources=[{"orig_page": 3, "blocks": [
         {"order": 2, "text": "⠃⠃\n"}, {"order": 1, "text": "⠁⠁\n"}]}],
         opts=opt(rows=4)), ""),
+    # 2026-09-01 결정 C — 표지는 **순번**으로 센다(앞에서 n개). 종전 벡터는 쪽 번호로
+    # 비교하던 시절 값(cover_pages=7, 원본 7·8쪽)이라 새 규칙에서는 뜻이 달라진다.
     ("표지 범위는 페이지행 생략", dict(sources=_TWO_PAGES, footer=FOOT_C,
-                            opts=opt(rows=6, cover_pages=7)), "조판 옵션 §5"),
+                            opts=opt(rows=6, cover_pages=1)), "조판 옵션 §5"),
+    ("꼬리말 우측 정렬", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                       opts=opt(rows=6, footer_align="right")), ""),
+    ("원본 페이지 변경선 끔", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                          opts=opt(rows=6, show_change_line=False)), ""),
+    ("원본 페이지 번호 다시 매기기", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                             opts=opt(rows=6, cover_pages=1, orig_page_start=20)), ""),
+    ("면별 꼬리말", dict(sources=_TWO_PAGES, footer=FOOT_C, footers={2: FOOT_A},
+                    opts=opt(rows=6)), ""),
     ("페이지행 끔(짝수만)", dict(sources=_TWO_PAGES, footer=FOOT_C,
                         opts=opt(rows=6, page_row_on="even")), ""),
     ("빈 입력", dict(sources=[], opts=opt(rows=6)), ""),
@@ -155,6 +166,20 @@ BRF_JOB = [
      {"job_id": "j1", "options": {"include_page_number": True, "rows": 26, "cols": 32},
       "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
      "기본 page_row_on=odd — 지침 1장2절2-1·원장 C-11"),
+    ("조립 JSON 새 조판 옵션 전부",
+     {"job_id": "j2",
+      "options": {"include_page_number": True, "page_row_on": "every", "rows": 6, "cols": 32,
+                  "show_orig_page": True, "show_braille_page": True,
+                  "cover_pages": 1, "orig_page_start": 20,
+                  "show_change_line": True, "footer_align": "right"},
+      "footer_braille": FOOT_C, "footers_braille": {"2": FOOT_A},
+      "start_braille_page": 1, "pages": _JOB_PAGES},
+     "2026-09-01 결정 B·C·D·E — 표지 순번·번호 재매김·우측 정렬·면별 꼬리말"),
+    ("조립 JSON 변경선 끔",
+     {"options": {"include_page_number": True, "rows": 6, "cols": 32,
+                  "show_change_line": False},
+      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
+     "show_change_line=false → 원본 페이지 변경선 생략(결정 D)"),
     ("조립 JSON 페이지행 끔",
      {"job_id": "j1", "options": {"include_page_number": False, "rows": 26, "cols": 32},
       "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
