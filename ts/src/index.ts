@@ -204,6 +204,15 @@ function hasPageRow(braillePage: number, on: string): boolean {
  *   지침 [예 1-7]이 105·107·109면에 없음·b·d를 붙이는 근거 — 페이지행이 홀수 면에만
  *   찍혀 a(106)·c(108)가 안 보이는 것이지 순번이 건너뛴 게 아니다.
  */
+/**
+ * 쪽바꿈 표식(2026-09-03, FE QA L-2). 편집 화면에서 Ctrl+Enter 로 끼워 넣는 **독립 요소**이고
+ * 본문은 이 한 줄뿐이다. 조판에서 만나면 요소를 버리고 그 자리에서 면을 끊는다.
+ * 원본 쪽 경계(orig_page)와 무관하게 쪽 한가운데에서도 올 수 있다.
+ */
+export const PAGE_BREAK_TAG = '<!쪽바꿈>';
+/** flat 안에서 쪽바꿈 자리를 표시하는 내부 값. 점자 텍스트에는 못 나오는 문자를 쓴다. */
+const BREAK = '\u0000brk';
+
 export function buildPages(
   sources: Source[],
   footer = '',
@@ -233,8 +242,19 @@ export function buildPages(
     const cover = i < o.coverPages;
     if (i > 0 && withChange) flat.push([pageChangeLine(op, opts), op, cover]);
     const blocks = [...(src.blocks ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    const text = blocks.map((b) => b.text ?? '').join('');
-    for (const logical of text.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op, cover]);
+    // 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
+    const segs: Array<string | null> = [];
+    let cur: string[] = [];
+    for (const b of blocks) {
+      const t = b.text ?? '';
+      if (t.trim() === PAGE_BREAK_TAG) { segs.push(cur.join('')); segs.push(null); cur = []; }
+      else cur.push(t);
+    }
+    segs.push(cur.join(''));
+    for (const seg of segs) {
+      if (seg === null) { flat.push([BREAK, op, cover]); continue; }
+      for (const logical of seg.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op, cover]);
+    }
   });
 
   // 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
@@ -242,7 +262,8 @@ export function buildPages(
   const firstSeen = new Map<number, number>();
   let pos = 0;
   while (pos < flat.length) {
-    while (pos < flat.length && flat[pos][0].trim() === '') pos++;   // 면 첫 줄의 빈 줄은 버린다
+    // 면 첫 줄의 빈 줄·이미 이룬 쪽바꿈은 버린다
+    while (pos < flat.length && (flat[pos][0].trim() === '' || flat[pos][0] === BREAK)) pos++;
     if (pos >= flat.length) break;
     const idx = pages.length;
     const bp = startBraillePage + idx;
@@ -250,8 +271,12 @@ export function buildPages(
     const onCover = flat[pos][2];              // 표지 범위는 페이지행 생략
     const hasRow = hasPageRow(bp, o.pageRowOn) && !onCover;
     const cap = o.rows - (hasRow ? 1 : 0);
-    const body = flat.slice(pos, pos + cap).map(([ln]) => ln);
-    pos += cap;
+    // 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
+    let end = pos;
+    while (end < flat.length && end - pos < cap && flat[end][0] !== BREAK) end++;
+    const body = flat.slice(pos, end).map(([ln]) => ln);
+    pos = end;
+    if (pos < flat.length && flat[pos][0] === BREAK) pos++;   // 표식 자체는 본문에 안 싣는다
     if (!firstSeen.has(head)) firstSeen.set(head, idx);
     while (body.length < cap) body.push('');
     if (hasRow) {

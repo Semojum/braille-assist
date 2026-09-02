@@ -237,6 +237,14 @@ def _renumber(sources: list, opts: Options) -> list:
     return out
 
 
+# 쪽바꿈 표식(2026-09-03, FE QA L-2). 편집 화면에서 Ctrl+Enter 로 끼워 넣는 **독립 요소**이고
+# 본문은 이 한 줄뿐이다. 조판에서 만나면 요소를 버리고 그 자리에서 면을 끊는다.
+# 원본 쪽 경계(orig_page)와 무관하게 쪽 한가운데에서도 올 수 있다.
+PAGE_BREAK_TAG = "<!쪽바꿈>"
+# flat 안에서 쪽바꿈 자리를 표시하는 내부 값. 점자 텍스트에는 못 나오는 문자를 쓴다.
+_BREAK = "\x00brk"
+
+
 def build_pages(
     sources: list,
     footer: str = "",
@@ -284,18 +292,33 @@ def build_pages(
         if i > 0 and with_change:         # 첫 원본 쪽 앞에는 변경선을 두지 않는다
             flat.append((page_change_line(op, opts), op, cover))
         blocks = sorted(src.get("blocks") or [], key=lambda b: b.get("order", 0))
-        text = "".join(b.get("text", "") for b in blocks)
-        for logical in text.split("\n"):
-            for w in _wrap(logical, opts.cols):
-                flat.append((w, op, cover))
+        # 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
+        segs: list = []
+        cur: list = []
+        for b in blocks:
+            t = b.get("text", "")
+            if t.strip() == PAGE_BREAK_TAG:
+                segs.append("".join(cur))
+                segs.append(None)
+                cur = []
+            else:
+                cur.append(t)
+        segs.append("".join(cur))
+        for seg in segs:
+            if seg is None:
+                flat.append((_BREAK, op, cover))
+                continue
+            for logical in seg.split("\n"):
+                for w in _wrap(logical, opts.cols):
+                    flat.append((w, op, cover))
 
     # 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
     pages: list = []
     first_seen: dict = {}                 # 원본 쪽 → 그 쪽이 처음 나온 면 번호(0-based)
     pos = 0
     while pos < len(flat):
-        while pos < len(flat) and not flat[pos][0].strip():
-            pos += 1                      # 면 첫 줄의 빈 줄은 버린다
+        while pos < len(flat) and (not flat[pos][0].strip() or flat[pos][0] == _BREAK):
+            pos += 1                      # 면 첫 줄의 빈 줄·이미 이룬 쪽바꿈은 버린다
         if pos >= len(flat):
             break
         idx = len(pages)
@@ -305,8 +328,14 @@ def build_pages(
         on_cover = flat[pos][2]
         has_row = _has_page_row(bp, opts.page_row_on) and not on_cover
         cap = opts.rows - (1 if has_row else 0)
-        body = [ln for ln, _, _ in flat[pos:pos + cap]]
-        pos += cap
+        # 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
+        end = pos
+        while end < len(flat) and end - pos < cap and flat[end][0] != _BREAK:
+            end += 1
+        body = [ln for ln, _, _ in flat[pos:end]]
+        pos = end
+        if pos < len(flat) and flat[pos][0] == _BREAK:
+            pos += 1                      # 표식 자체는 본문에 안 싣는다
         first_seen.setdefault(head_page, idx)
         body += [""] * (cap - len(body))
         if has_row:
