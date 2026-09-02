@@ -273,6 +273,15 @@ public final class BrailleAssist {
      * "이 면부터 끝까지 / 이 면만"은 편집 시점의 뜻이라 여기서 풀지 않는다 — 호출자(FE)가
      * 범위를 해석해 면별 값으로 펼쳐 넘긴다(2026-09-01 결정 E).
      */
+    /**
+     * 쪽바꿈 표식(2026-09-03, FE QA L-2). 편집 화면에서 Ctrl+Enter 로 끼워 넣는 <b>독립 요소</b>이고
+     * 본문은 이 한 줄뿐이다. 조판에서 만나면 요소를 버리고 그 자리에서 면을 끊는다.
+     * 원본 쪽 경계(origPage)와 무관하게 쪽 한가운데에서도 올 수 있다.
+     */
+    public static final String PAGE_BREAK_TAG = "<!쪽바꿈>";
+    /** lines 안에서 쪽바꿈 자리를 표시하는 내부 값. 점자 텍스트에는 못 나오는 문자를 쓴다. */
+    private static final String BREAK = "\u0000brk";
+
     public static java.util.List<java.util.List<String>> buildPages(
             java.util.List<Source> sources, String footer, int startBraillePage, Options opts,
             java.util.Map<Integer, String> footers) {
@@ -300,13 +309,33 @@ public final class BrailleAssist {
             java.util.List<Block> bs = new java.util.ArrayList<>(
                     src.blocks == null ? java.util.Collections.emptyList() : src.blocks);
             bs.sort(java.util.Comparator.comparingInt(b -> b.order));
+            // 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
+            java.util.List<String> segs = new java.util.ArrayList<>();
             StringBuilder sb = new StringBuilder();
-            for (Block b : bs) sb.append(b.text == null ? "" : b.text);
-            for (String logical : sb.toString().split("\n", -1)) {
-                for (String w : wrap(logical, opts.cols)) {
-                    lines.add(w);
+            for (Block b : bs) {
+                String t = b.text == null ? "" : b.text;
+                if (t.trim().equals(PAGE_BREAK_TAG)) {
+                    segs.add(sb.toString());
+                    segs.add(null);
+                    sb = new StringBuilder();
+                } else {
+                    sb.append(t);
+                }
+            }
+            segs.add(sb.toString());
+            for (String seg : segs) {
+                if (seg == null) {
+                    lines.add(BREAK);
                     owner.add(op);
                     coverOf.add(cover);
+                    continue;
+                }
+                for (String logical : seg.split("\n", -1)) {
+                    for (String w : wrap(logical, opts.cols)) {
+                        lines.add(w);
+                        owner.add(op);
+                        coverOf.add(cover);
+                    }
                 }
             }
         }
@@ -316,7 +345,9 @@ public final class BrailleAssist {
         java.util.Map<Integer, Integer> firstSeen = new java.util.HashMap<>();
         int pos = 0;
         while (pos < lines.size()) {
-            while (pos < lines.size() && lines.get(pos).trim().isEmpty()) pos++;  // 면 첫 빈 줄은 버린다
+            // 면 첫 줄의 빈 줄·이미 이룬 쪽바꿈은 버린다
+            while (pos < lines.size()
+                    && (lines.get(pos).trim().isEmpty() || BREAK.equals(lines.get(pos)))) pos++;
             if (pos >= lines.size()) break;
             int idx = pages.size();
             int bp = startBraillePage + idx;
@@ -324,9 +355,12 @@ public final class BrailleAssist {
             boolean onCover = coverOf.get(pos);           // 표지 범위는 페이지행 생략
             boolean hasRow = hasPageRow(bp, opts.pageRowOn) && !onCover;
             int cap = opts.rows - (hasRow ? 1 : 0);
-            java.util.List<String> body = new java.util.ArrayList<>(
-                    lines.subList(pos, Math.min(pos + cap, lines.size())));
-            pos += cap;
+            // 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
+            int end = pos;
+            while (end < lines.size() && end - pos < cap && !BREAK.equals(lines.get(end))) end++;
+            java.util.List<String> body = new java.util.ArrayList<>(lines.subList(pos, end));
+            pos = end;
+            if (pos < lines.size() && BREAK.equals(lines.get(pos))) pos++;  // 표식은 본문에 안 싣는다
             firstSeen.putIfAbsent(head, idx);
             while (body.size() < cap) body.add("");
             if (hasRow) {
