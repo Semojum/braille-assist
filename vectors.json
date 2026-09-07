@@ -1195,6 +1195,47 @@
           }
         },
         "expect": []
+      },
+      {
+        "name": "어절 줄바꿈 — 음절을 쪼개지 않는다(자료지침 §2.1.1(2), 대표 지적 2026-09-08)",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 1,
+                  "text": "⠀⠀⠀⠀⠀⠀⠇⠚⠽⠀⠚⠁⠠⠪⠃⠨⠕⠀⠤⠤⠀⠠⠾⠈⠎⠧⠀⠑⠟⠨⠍⠨⠍⠺\n⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁"
+                }
+              ]
+            }
+          ],
+          "footer": "",
+          "start_braille_page": 1,
+          "opts": {
+            "cols": 32,
+            "rows": 8,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠀⠀⠀⠀⠇⠚⠽⠀⠚⠁⠠⠪⠃⠨⠕⠀⠤⠤⠀⠠⠾⠈⠎⠧",
+            "⠑⠟⠨⠍⠨⠍⠺",
+            "⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁",
+            "⠁⠁⠁⠁⠁⠁⠁⠁",
+            "",
+            "",
+            "",
+            ""
+          ]
+        ]
       }
     ],
     "build_brf": [
