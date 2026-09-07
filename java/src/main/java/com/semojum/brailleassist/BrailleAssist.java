@@ -235,17 +235,43 @@ public final class BrailleAssist {
         }
     }
 
-    /** 32칸이 차면 그대로 자른다. 어절 단위 줄바꿈 규칙은 없다(조판 가이드 §1 확정). */
+    /** cols를 넘으면 <b>빈칸(어절) 자리에서</b> 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
+     *  종전의 무조건 자르기는 한글 한 음절의 점형을 두 줄로 갈랐다 — 지침 §2.1.1(2)의
+     *  음절 원칙도 어절 예외도 아니다(2026-09-08 대표 지적 ③). 근거는 python core._wrap. */
     private static java.util.List<String> wrap(String line, int cols) {
         java.util.List<String> out = new java.util.ArrayList<>();
         if (line.isEmpty()) {
             out.add("");
             return out;
         }
-        for (int i = 0; i < line.length(); i += cols) {
-            out.add(line.substring(i, Math.min(i + cols, line.length())));
+        while (line.length() > cols) {
+            int cut = line.lastIndexOf(SPACE, cols);
+            if (cut <= 0 || trimCells(line.substring(0, cut)).isEmpty()) {
+                out.add(line.substring(0, cols));
+                line = line.substring(cols);
+            } else {
+                out.add(trimEndCells(line.substring(0, cut)));
+                line = trimStartCells(line.substring(cut));
+            }
         }
+        out.add(line);
         return out;
+    }
+
+    private static String trimEndCells(String s) {
+        int e = s.length();
+        while (e > 0 && s.charAt(e - 1) == SPACE) e--;
+        return s.substring(0, e);
+    }
+
+    private static String trimStartCells(String s) {
+        int b = 0;
+        while (b < s.length() && s.charAt(b) == SPACE) b++;
+        return s.substring(b);
+    }
+
+    private static String trimCells(String s) {
+        return trimEndCells(trimStartCells(s));
     }
 
     private static boolean hasPageRow(int braillePage, String on) {

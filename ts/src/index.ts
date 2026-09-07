@@ -181,11 +181,25 @@ export function toBrfAscii(braille: string): string {
 export interface Block { order: number; text: string }
 export interface Source { orig_page: number; blocks: Block[] }
 
-/** 32칸이 차면 그대로 자른다. 어절 단위 줄바꿈 규칙은 없다(조판 가이드 §1 확정). */
+/** cols를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
+ *  종전의 무조건 자르기는 한글 한 음절의 점형을 두 줄로 갈랐다 — 지침 §2.1.1(2)의
+ *  음절 원칙도 어절 예외도 아니다(2026-09-08 대표 지적 ③). 자세한 근거는 python core._wrap. */
 function wrap(line: string, cols: number): string[] {
   if (!line) return [''];
   const out: string[] = [];
-  for (let i = 0; i < line.length; i += cols) out.push(line.slice(i, i + cols));
+  const trimEnd = (s: string) => s.replace(/⠀+$/, '');
+  const trimStart = (s: string) => s.replace(/^⠀+/, '');
+  while (line.length > cols) {
+    const cut = line.lastIndexOf(SPACE, cols);
+    if (cut <= 0 || trimEnd(trimStart(line.slice(0, cut))) === '') {
+      out.push(line.slice(0, cols));
+      line = line.slice(cols);
+    } else {
+      out.push(trimEnd(line.slice(0, cut)));
+      line = trimStart(line.slice(cut));
+    }
+  }
+  out.push(line);
   return out;
 }
 

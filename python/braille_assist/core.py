@@ -201,13 +201,31 @@ def to_brf_ascii(braille: str) -> str:
 
 
 def _wrap(line: str, cols: int) -> list[str]:
-    """32칸이 차면 **그대로 자른다**. 어절 단위 줄바꿈 규칙은 없다(조판 가이드 §1 확정).
+    """`cols`를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
 
-    잘린 낱말은 점역사가 스페이스·delete로 조정한다.
+    종전에는 자리를 안 보고 `line[i:i + cols]`로 잘랐다. 그러면 한글 한 음절을 이루는
+    점형이 두 줄로 갈린다 — 「점자 자료 제작 지침」 §2.1.1(2)가 원칙으로 삼는 **음절 단위
+    줄바꿈**도, 예외로 허용하는 **어절 단위**도 아닌 값이다. 2026-09-08 대표 지적 ③에서
+    사회학습지 예시 제목 '민주주의'가 `⠑⠟⠨⠍⠨` / `⠍⠺`로 갈려 나왔다.
+
+    셀만 보고는 음절 경계를 알 수 없다(초성·종성 점형을 되짚어야 한다). 빈칸 경계는
+    음절 경계의 부분집합이라 **음절을 쪼갤 일이 없고**, 정답 도서 실측도 어절이다
+    (원장 C-83: 31칸 이상 줄이 gold dev 23.8%·val 24.9%). 지침 §2.1.1(2)의 예외절이
+    "시험 문제지"를 집는데 우리 입력이 그것이다.
     """
     if not line:
         return [""]
-    return [line[i:i + cols] for i in range(0, len(line), cols)]
+    out: list[str] = []
+    while len(line) > cols:
+        cut = line.rfind(SPACE, 0, cols + 1)
+        if cut <= 0 or not line[:cut].strip(SPACE):
+            out.append(line[:cols])          # 어절 하나가 폭을 넘는다 — 그 자리에서만 강제 분리
+            line = line[cols:]
+        else:
+            out.append(line[:cut].rstrip(SPACE))
+            line = line[cut:].lstrip(SPACE)  # 자른 자리의 빈칸은 줄머리로 넘기지 않는다
+    out.append(line)
+    return out
 
 
 def _has_page_row(braille_page: int, on: str) -> bool:
