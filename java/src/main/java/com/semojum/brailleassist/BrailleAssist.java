@@ -356,7 +356,11 @@ public final class BrailleAssist {
                     coverOf.add(cover);
                     continue;
                 }
-                for (String logical : seg.split("\n", -1)) {
+                // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
+                // split 이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
+                if (seg.isEmpty()) continue;  // 내용 없는 토막(쪽바꿈 표식이 잇달은 자리)
+                String segBody = seg.endsWith("\n") ? seg.substring(0, seg.length() - 1) : seg;
+                for (String logical : segBody.split("\n", -1)) {
                     for (String w : wrap(logical, opts.cols)) {
                         lines.add(w);
                         owner.add(op);
@@ -367,16 +371,23 @@ public final class BrailleAssist {
         }
 
         // 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
+        // ★ 면 첫 줄의 빈 줄은 버리지 않는다 — 지침 2장2절2 2)(3)·§2.4.4(3)
+        //   "본문 사이의 빈 줄이 점자 페이지 처음에 위치하더라도 빈 줄을 삭제하지 않는다".
+        //   다만 문서 맨 앞 빈 줄은 '본문 사이'가 아니라 버린다.
         java.util.List<java.util.List<String>> pages = new java.util.ArrayList<>();
         java.util.Map<Integer, Integer> firstSeen = new java.util.HashMap<>();
+        int last = -1;   // 마지막 내용 줄 — 뒤쪽 빈 줄로 빈 면을 만들지 않는다
+        for (int k = 0; k < lines.size(); k++) {
+            if (!BREAK.equals(lines.get(k)) && !lines.get(k).trim().isEmpty()) last = k;
+        }
         int pos = 0;
-        while (pos < lines.size()) {
-            // 면 첫 줄의 빈 줄·이미 이룬 쪽바꿈은 버린다
-            while (pos < lines.size()
-                    && (lines.get(pos).trim().isEmpty() || BREAK.equals(lines.get(pos)))) pos++;
-            if (pos >= lines.size()) break;
+        while (pos <= last && !BREAK.equals(lines.get(pos)) && lines.get(pos).trim().isEmpty()) pos++;
+        int bpn = startBraillePage;   // 표지 면은 점자 면 번호를 소비하지 않는다
+        while (pos <= last) {
+            while (pos <= last && BREAK.equals(lines.get(pos))) pos++;  // 이미 이룬 쪽바꿈만 버린다
+            if (pos > last) break;
             int idx = pages.size();
-            int bp = startBraillePage + idx;
+            int bp = bpn;
             int head = owner.get(pos);
             boolean onCover = coverOf.get(pos);           // 표지 범위는 페이지행 생략
             boolean hasRow = hasPageRow(bp, opts.pageRowOn) && !onCover;
@@ -393,6 +404,7 @@ public final class BrailleAssist {
                 String f = fmap.getOrDefault(bp, footer);
                 body.add(pageRow(head, idx - firstSeen.get(head), bp, f, opts));
             }
+            if (!onCover) bpn++;   // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
             pages.add(body);
         }
         return pages;

@@ -39,6 +39,10 @@ class Options:
     cover_pages — **원본 페이지 개수**다. 점자 면 수가 아니다(2026-09-01 확정).
       앞에서 이만큼의 원본 페이지를 표지로 보고 ① 페이지행을 넣지 않고 ② 본문 번호를
       그 뒤부터 센다. `orig_page_start`와 함께 계산된다.
+      ③ **점자 면 번호도 소비하지 않는다**(2026-09-08). 지침 1장2 3)(1)(도서 335행)
+      "점자 페이지 번호는 점자 표지 다음 페이지를 1로 시작"·604행 "점자 표지에는 점자
+      페이지 번호를 적지 않는다"·자료지침 §2.1.5(1)(557행). 종전에는 표지 면이 번호를
+      먹어 본문 첫 면이 2·3번이 됐다.
 
     orig_page_start — 표지 다음 첫 본문 원본 페이지에 붙일 번호.
       None이면 `sources`가 준 `orig_page`를 그대로 쓴다(종전 동작).
@@ -326,21 +330,43 @@ def build_pages(
             if seg is None:
                 flat.append((_BREAK, op, cover))
                 continue
+            # 통 문자열의 **끝 개행은 마지막 줄을 끝내는 종결자**이지 빈 줄이 아니다.
+            # AI `flatten_elements`가 `suffix = "\n" * (after + 1)`로 내보내는데 그 +1이
+            # 종결자다(docstring: "본문 마지막 줄을 끝내는 개행"). split("\n")은 그걸 빈
+            # 줄로 세어 **원본 쪽마다 유령 빈 줄이 하나씩** 생겼다 — 변경선 바로 위에 늘
+            # 빈 줄이 찍혔고, 쪽마다 한 줄씩 밀렸다. AI `_assemble_pages`는 안 그런다.
+            if not seg:
+                continue      # 내용이 아예 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
+            if seg.endswith("\n"):
+                seg = seg[:-1]
             for logical in seg.split("\n"):
                 for w in _wrap(logical, opts.cols):
                     flat.append((w, op, cover))
 
     # 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
+    #
+    # ★ 면 첫 줄의 빈 줄은 **버리지 않는다** — 지침 2장2절2 2)(3)(도서 906행)·§2.4.4(3)
+    #   (자료 942행) "본문 사이의 빈 줄이 점자 페이지 처음에 위치하더라도 빈 줄을 삭제하지
+    #   않는다". 2025 개정 요약 3(도서 145행)이 종전 예외를 없앤 자리다. AI 쪽
+    #   `layout_braille._paginate`는 이미 규정대로다(2026-08-08 대표 결정, gold 3.2%).
+    #   다만 **문서 맨 앞** 빈 줄은 '본문 사이'가 아니라 버린다.
     pages: list = []
     first_seen: dict = {}                 # 원본 쪽 → 그 쪽이 처음 나온 면 번호(0-based)
+    last = -1                             # 마지막 내용 줄 — 뒤쪽 빈 줄로 빈 면을 만들지 않는다
+    for k, (ln, _o, _c) in enumerate(flat):
+        if ln != _BREAK and ln.strip():
+            last = k
     pos = 0
-    while pos < len(flat):
-        while pos < len(flat) and (not flat[pos][0].strip() or flat[pos][0] == _BREAK):
-            pos += 1                      # 면 첫 줄의 빈 줄·이미 이룬 쪽바꿈은 버린다
-        if pos >= len(flat):
+    while pos <= last and flat[pos][0] != _BREAK and not flat[pos][0].strip():
+        pos += 1                          # 문서 맨 앞의 빈 줄만 버린다
+    bpn = start_braille_page              # 표지 면은 점자 면 번호를 소비하지 않는다
+    while pos <= last:
+        while pos <= last and flat[pos][0] == _BREAK:
+            pos += 1                      # 이미 이룬 쪽바꿈 표식만 버린다
+        if pos > last:
             break
         idx = len(pages)
-        bp = start_braille_page + idx
+        bp = bpn
         head_page = flat[pos][1]
         # 표지 범위 안이면 페이지행을 생략한다(조판 옵션 §5).
         on_cover = flat[pos][2]
@@ -359,6 +385,8 @@ def build_pages(
         if has_row:
             f = fmap.get(bp, footer)
             body.append(page_row(head_page, idx - first_seen[head_page], bp, f, opts))
+        if not on_cover:
+            bpn += 1                      # 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
         pages.append(body)
     return pages
 

@@ -267,20 +267,30 @@ export function buildPages(
     segs.push(cur.join(''));
     for (const seg of segs) {
       if (seg === null) { flat.push([BREAK, op, cover]); continue; }
-      for (const logical of seg.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op, cover]);
+      // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
+      // split('\n')이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
+      if (seg === '') continue;   // 내용이 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
+      const body = seg.endsWith('\n') ? seg.slice(0, -1) : seg;
+      for (const logical of body.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op, cover]);
     }
   });
 
   // 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
+  // ★ 면 첫 줄의 빈 줄은 버리지 않는다 — 지침 2장2절2 2)(3)·§2.4.4(3)
+  //   "본문 사이의 빈 줄이 점자 페이지 처음에 위치하더라도 빈 줄을 삭제하지 않는다".
+  //   다만 문서 맨 앞 빈 줄은 '본문 사이'가 아니라 버린다.
   const pages: string[][] = [];
   const firstSeen = new Map<number, number>();
+  let last = -1;                                  // 마지막 내용 줄 — 뒤쪽 빈 줄로 빈 면을 만들지 않는다
+  for (let k = 0; k < flat.length; k++) if (flat[k][0] !== BREAK && flat[k][0].trim() !== '') last = k;
   let pos = 0;
-  while (pos < flat.length) {
-    // 면 첫 줄의 빈 줄·이미 이룬 쪽바꿈은 버린다
-    while (pos < flat.length && (flat[pos][0].trim() === '' || flat[pos][0] === BREAK)) pos++;
-    if (pos >= flat.length) break;
+  while (pos <= last && flat[pos][0] !== BREAK && flat[pos][0].trim() === '') pos++;
+  let bpn = startBraillePage;                     // 표지 면은 점자 면 번호를 소비하지 않는다
+  while (pos <= last) {
+    while (pos <= last && flat[pos][0] === BREAK) pos++;   // 이미 이룬 쪽바꿈 표식만 버린다
+    if (pos > last) break;
     const idx = pages.length;
-    const bp = startBraillePage + idx;
+    const bp = bpn;
     const head = flat[pos][1];
     const onCover = flat[pos][2];              // 표지 범위는 페이지행 생략
     const hasRow = hasPageRow(bp, o.pageRowOn) && !onCover;
@@ -297,6 +307,7 @@ export function buildPages(
       const f = fmap.get(bp) ?? footer;
       body.push(pageRow(head, idx - (firstSeen.get(head) as number), bp, f, opts));
     }
+    if (!onCover) bpn++;                          // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
     pages.push(body);
   }
   return pages;
