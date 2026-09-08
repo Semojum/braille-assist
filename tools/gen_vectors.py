@@ -128,15 +128,25 @@ BUILD = [
           footer=FOOT_B, start_braille_page=105, opts=opt(page_row_on="odd")),
      "지침 1장2절2-2(3)·[예 1-7] — 105 접두없음 · 107 b · 109 d"),
     ("원본 두 쪽 · 변경선 삽입", dict(sources=_TWO_PAGES, footer=FOOT_C,
-                             opts=opt(rows=6)), "지침 2장2절2-3 변경선 위치"),
+                             opts=opt(rows=6)),
+     "지침 2장2절2-3 변경선 위치 — 변경선 바로 위에 빈 줄이 없다"
+     "(요소 통 문자열의 끝 개행은 줄 종결자이지 빈 줄이 아니다)"),
     ("꼬리말 없음", dict(sources=_TWO_PAGES, opts=opt(rows=6)), ""),
     ("블록 order 정렬", dict(sources=[{"orig_page": 3, "blocks": [
         {"order": 2, "text": "⠃⠃\n"}, {"order": 1, "text": "⠁⠁\n"}]}],
         opts=opt(rows=4)), ""),
     # 2026-09-01 결정 C — 표지는 **순번**으로 센다(앞에서 n개). 종전 벡터는 쪽 번호로
     # 비교하던 시절 값(cover_pages=7, 원본 7·8쪽)이라 새 규칙에서는 뜻이 달라진다.
-    ("표지 범위는 페이지행 생략", dict(sources=_TWO_PAGES, footer=FOOT_C,
-                            opts=opt(rows=6, cover_pages=1)), "조판 옵션 §5"),
+    ("표지 범위는 페이지행 생략 · 표지 다음 면이 1", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                            opts=opt(rows=6, cover_pages=1)),
+     "조판 옵션 §5 · 지침 1장2 3)(1)(도서 335행)·§2.1.5(1)(자료 557행) — "
+     "표지에는 번호를 안 적고 표지 다음 면이 1이다"),
+    # 지침 2장2절2 2)(3)(도서 906행) = §2.4.4(3)(자료 942행)
+    # "본문 사이의 빈 줄이 점자 페이지 처음에 위치하더라도 빈 줄을 삭제하지 않는다"
+    ("면 첫 줄의 빈 줄은 살린다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 1, "text": "⠁\n⠃\n\n⠉\n"}]}],
+        opts=opt(rows=2, page_row_on="none")),
+     "지침 2장2절2 2)(3)(도서 906행)·§2.4.4(3)(자료 942행) — 2면 첫 줄이 빈 줄로 남는다"),
     ("꼬리말 우측 정렬", dict(sources=_TWO_PAGES, footer=FOOT_C,
                        opts=opt(rows=6, footer_align="right")), ""),
     ("원본 페이지 변경선 끔", dict(sources=_TWO_PAGES, footer=FOOT_C,
@@ -148,6 +158,29 @@ BUILD = [
     ("페이지행 끔(짝수만)", dict(sources=_TWO_PAGES, footer=FOOT_C,
                         opts=opt(rows=6, page_row_on="even")), ""),
     ("빈 입력", dict(sources=[], opts=opt(rows=6)), ""),
+    # ── 쪽바꿈 표식(#3, PR #4) ── 종전에 vectors.json 에만 있고 이 생성기에 없어서
+    #    재생성하면 조용히 사라졌다. 케이스 정의는 여기가 정본이다.
+    ("쪽바꿈 표식 — 그 자리에서 면이 갈리고 표식은 안 실린다", dict(
+        sources=[{"orig_page": 1, "blocks": [
+            {"order": 0, "text": "⠁⠃⠉\n"}, {"order": 1, "text": "<!쪽바꿈>"},
+            {"order": 2, "text": "⠙⠑⠋\n"}]}],
+        opts=opt(page_row_on="none")), ""),
+    ("쪽바꿈 표식 — 원본 쪽 한가운데에서도 갈린다", dict(
+        sources=[{"orig_page": 7, "blocks": [
+            {"order": 0, "text": "⠁⠁\n⠃⠃\n"}, {"order": 1, "text": "<!쪽바꿈>"},
+            {"order": 2, "text": "⠉⠉\n"}]}],
+        opts=opt(page_row_on="none")), ""),
+    ("쪽바꿈 표식이 잇달으면 빈 면을 만들지 않는다", dict(
+        sources=[{"orig_page": 1, "blocks": [
+            {"order": 0, "text": "⠁⠃⠉\n"}, {"order": 1, "text": "<!쪽바꿈>"},
+            {"order": 2, "text": "<!쪽바꿈>"}, {"order": 3, "text": "⠙⠑⠋\n"}]}],
+        opts=opt(page_row_on="none")), ""),
+    # ── 어절 줄바꿈(#5, PR #6) ── 위와 같은 이유로 여기에 옮겨 둔다.
+    ("어절 줄바꿈 — 음절을 쪼개지 않는다(자료지침 §2.1.1(2), 대표 지적 2026-09-08)", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 1, "text":
+            "⠀⠀⠀⠀⠀⠀⠇⠚⠽⠀⠚⠁⠠⠪⠃⠨⠕⠀⠤⠤⠀⠠⠾⠈⠎⠧⠀⠑⠟⠨⠍⠨⠍⠺\n" + "⠁" * 40}]}],
+        opts=opt(rows=8, page_row_on="none")),
+     "자료지침 §2.1.1(2)(443~450행) — 빈칸(어절) 자리에서 접는다"),
 ]
 
 
