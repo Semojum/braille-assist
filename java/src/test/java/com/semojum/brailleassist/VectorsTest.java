@@ -133,6 +133,15 @@ class VectorsTest {
                         pages);
                 return BrailleAssist.buildBrf(job);
             }
+            case "pages_to_brf": {
+                List<List<String>> pages = new ArrayList<>();
+                for (JsonNode p : a.get("pages")) {
+                    List<String> ls = new ArrayList<>();
+                    for (JsonNode l : p) ls.add(l.asText());
+                    pages.add(ls);
+                }
+                return BrailleAssist.pagesToBrf(pages);
+            }
             default:
                 throw new IllegalArgumentException("모르는 함수: " + fname);
         }

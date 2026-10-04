@@ -63,10 +63,28 @@ Job JSON을 받아 `.brf` 파일에 그대로 쓸 문자열을 돌려준다. 조
 |---|---|---|
 | `job` | dict | [Job JSON](#job-json) |
 
-**반환** `str` — 줄바꿈 `\n`으로 이어진 BRF-ASCII.
+**반환** `str` — BRF-ASCII. 바이트 규격은 [`pages_to_brf`](#pages_to_brfpages)와 같다(줄마다 `\r\n`, 면마다 끝에 `\f`).
 
 ```python
-build_brf(job)   # '#gb         s<togo@!        #aje\n...'
+build_brf(job)   # '#gb         s<togo@!        #aje\r\n...\r\n\x0c...'
+```
+
+## pages_to_brf(pages)
+
+면 배열을 `.brf` 파일 내용으로 바꾼다. 화면 판면을 그대로 파일로 떨굴 때도 이것을 부른다(줄을 직접 잇지 말 것).
+
+| 매개변수 | 타입 | 설명 |
+|---|---|---|
+| `pages` | list[list[str]] | 유니코드 점자 면 배열(`build_pages` · `build_pages_from_job` 반환값) |
+
+**반환** `str` — 줄마다 `\r\n`, 면마다 끝에 `\f`(마지막 면 포함). 면이 없으면 빈 문자열.
+
+- 현장 BRF 와 같은 바이트 규격이다. 점자 대체교과서 BRF 51권(250~700KB)이 모두 줄마다 CRLF, 26줄 면마다 폼 피드다.
+- 종전처럼 `\n` 으로만 잇고 면 구분자를 안 넣으면 실로암브레일이 34KB 파일을 못 열었다(한국점자도서관 앱 테스트 결과보고서 2026-09-17, #10). 점사랑은 열었다.
+- 6점 밖 글자는 `to_brf_ascii` 대로 `⟨XXXX⟩` 가 남아 ASCII 밖 바이트가 될 수 있다.
+
+```python
+pages_to_brf([["⠁⠃", "⠀⠼⠁"], ["⠉"]])   # 'ab\r\n #a\r\n\x0cc\r\n\x0c'
 ```
 
 ## build_pages_from_job(job)
@@ -79,8 +97,8 @@ build_brf(job)   # '#gb         s<togo@!        #aje\n...'
 
 **반환** `list[list[str]]` — 면마다 `rows`개의 줄. 페이지행이 들어가는 면은 마지막 줄이 페이지행이다.
 
-`.brf`와 `.txt`는 같은 조판 결과의 다른 표기다. 면 사이에 구분자를 넣지 않는다.
-점자 프린터가 면마다 폼피드를 요구하면 `"\f".join("\n".join(p) for p in pages)`처럼 호출부에서 넣는다.
+`.brf`와 `.txt`는 같은 조판 결과의 다른 표기다. `.txt`는 면 사이에 구분자를 넣지 않는다.
+`.brf`는 [`pages_to_brf`](#pages_to_brfpages)가 줄마다 `\r\n`, 면마다 `\f`를 넣는다.
 
 ## build_pages(sources, footer, start_braille_page, opts, footers)
 

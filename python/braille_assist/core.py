@@ -460,12 +460,21 @@ def build_pages_from_job(job: dict) -> list:
     )
 
 
+def pages_to_brf(pages: list) -> str:
+    """점자 면 배열 → **.brf 파일 내용**(BRF Braille ASCII). 줄마다 `\r\n`, 면마다 끝에 `\f`(마지막 면 포함).
+
+    현장 BRF 와 같은 바이트 규격이다(점자 대체교과서 BRF 51권: 줄마다 CRLF, 26줄 면마다 폼 피드).
+    종전처럼 `\n` 으로만 잇고 면 구분자를 안 넣으면 실로암브레일이 34KB 파일을 못 열었다
+    (한국점자도서관 앱 테스트 결과보고서 2026-09-17, #10). 파일은 이 문자열을 그대로 쓴다.
+    6점 밖 글자는 `to_brf_ascii` 대로 `⟨XXXX⟩` 가 남아 ASCII 밖 바이트가 될 수 있다.
+    """
+    return "".join("".join(to_brf_ascii(line) + "\r\n" for line in page) + "\f" for page in pages)
+
+
 def build_brf(job: dict) -> str:
-    """BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 `\n`).
+    """BE 조립 JSON → **.brf 파일 내용**(`pages_to_brf` 규격).
 
     BE는 이 문자열을 그대로 파일로 쓰면 된다. 점역은 하지 않는다 — 이미 점역된
     통 문자열을 조판만 한다.
     """
-    return "\n".join(to_brf_ascii(line)
-                      for page in build_pages_from_job(job)
-                      for line in page)
+    return pages_to_brf(build_pages_from_job(job))

@@ -9,8 +9,8 @@ FE(ts)·BE(java)·AI(python) 세 구현이 같은 출력을 내야 한다. 규�
 """
 
 from .core import (Options, build_brf, build_pages, build_pages_from_job,
-                   options_from_job, page_change_line, page_row, to_brf_ascii)
+                   options_from_job, page_change_line, page_row, pages_to_brf, to_brf_ascii)
 
 __all__ = ["Options", "page_row", "page_change_line", "to_brf_ascii", "build_pages",
-           "build_pages_from_job", "build_brf", "options_from_job"]
+           "build_pages_from_job", "build_brf", "pages_to_brf", "options_from_job"]
 __version__ = "0.3.0"
