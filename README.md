@@ -1,5 +1,12 @@
 # braille-assist
 
+> **파이썬 기준 구현은 [Semojum/braille](https://github.com/Semojum/braille) 로 옮겨갔다(2026-10-04).**
+> 앞으로 점역과 조판은 앱에 내장된 파이썬 엔진이 한다. 같은 함수가 `semojum_braille.assist` 에 있고,
+> 이 저장소의 `vectors.json`(0.3.0)은 그쪽 시험(`test/data/assist_vectors.json`)으로 옮겨져 같은 동작을 묶는다.
+> 파일로 낼 때 쓰는 현장 꼴 `.brf`(줄 끝 `\r\n`, 쪽마다 `\x0c`)도 그쪽 `build_brf_file` 에 있다.
+> `ts/` · `java/` 는 웹 FE · BE 가 쓰는 동안 여기 남는다. 언제 지울지는 앱 전환 뒤에 정한다.
+> 조판 규칙을 바꿀 때는 Semojum/braille 을 먼저 고친다.
+
 점자 조판 라이브러리. 이미 점역된 점자 문자열을 받아 **면으로 나누고, 줄을 자르고,
 페이지행과 변경선을 붙인다.** 점역은 하지 않는다.
 
@@ -8,7 +15,7 @@
 
 | 구현 | 쓰는 곳 |
 |---|---|
-| `python/` | AI 점역 파트 (기준 구현) |
+| `python/` | AI 점역 파트. 기준 구현은 Semojum/braille 로 옮겨감(위) |
 | `ts/` | FE 에디터 화면 |
 | `java/` | BE 다운로드 파일 생성 |
 
