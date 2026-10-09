@@ -1,3 +1,5 @@
+이 저장소는 `Semojum/braille` 로 이전했다. 새 자리는 https://github.com/Semojum/braille 다. 여기는 더 고치지 않는다.
+
 # braille-assist
 
 점자 조판 라이브러리. 이미 점역된 점자 문자열을 받아 **면으로 나누고, 줄을 자르고,
