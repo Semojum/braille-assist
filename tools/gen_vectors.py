@@ -181,6 +181,26 @@ BUILD = [
             "⠀⠀⠀⠀⠀⠀⠇⠚⠽⠀⠚⠁⠠⠪⠃⠨⠕⠀⠤⠤⠀⠠⠾⠈⠎⠧⠀⠑⠟⠨⠍⠨⠍⠺\n" + "⠁" * 40}]}],
         opts=opt(rows=8, page_row_on="none")),
      "자료지침 §2.1.1(2)(443~450행) — 빈칸(어절) 자리에서 접는다"),
+    # ── 블록 경계(#16) ── 블록은 서로 다른 요소다. 끝 개행이 없어도 다음 블록과 한 줄로 붙지 않는다.
+    #    웹에서 저장한 쪽은 BE 가 contents 를 끝 개행 없이 받아 Block(order, join("\n")) 으로 넘긴다.
+    ("블록 끝 개행이 없어도 다음 블록과 붙지 않는다(#16)", dict(
+        sources=[{"orig_page": 1, "blocks": [
+            {"order": 0, "text": "⠀⠀⠁⠃⠉"}, {"order": 1, "text": "⠀⠀⠙⠑⠋\n⠀⠀⠛⠓"}]}],
+        opts=opt(rows=6, page_row_on="none")), ""),
+    ("블록 경계 — 다음 블록 앞 빈 줄이 살아 있다(#16)", dict(
+        sources=[{"orig_page": 1, "blocks": [
+            {"order": 0, "text": "⠀⠀⠁⠃⠉"}, {"order": 1, "text": "\n⠀⠀⠀⠀⠙⠑⠋\n\n"},
+            {"order": 2, "text": "⠀⠀⠛⠓"}]}],
+        opts=opt(rows=6, page_row_on="none")), ""),
+    ("블록 경계 — 빈 블록은 줄을 더하지 않는다(#16)", dict(
+        sources=[{"orig_page": 1, "blocks": [
+            {"order": 0, "text": "⠁⠃\n"}, {"order": 1, "text": ""},
+            {"order": 2, "text": "⠉⠙"}, {"order": 3, "text": ""}, {"order": 4, "text": "⠑⠋"}]}],
+        opts=opt(rows=6, page_row_on="none")), ""),
+    ("블록 경계 — 끝 개행 없는 블록 뒤 원본 쪽이 바뀌어도 같다(#16)", dict(
+        sources=[{"orig_page": 7, "blocks": [{"order": 0, "text": "⠁⠁"}, {"order": 1, "text": "⠃⠃"}]},
+                 {"orig_page": 8, "blocks": [{"order": 0, "text": "⠉⠉"}]}],
+        opts=opt(rows=6)), ""),
 ]
 
 
@@ -222,11 +242,16 @@ BRF_JOB = [
       "footer_braille": FOOT_C, "start_braille_page": 105, "pages": _JOB_PAGES}, ""),
     ("조립 JSON 빈 입력", {"pages": []}, ""),
     ("조립 JSON options 생략(기본값)", {"pages": _JOB_PAGES}, ""),
+    ("조립 JSON 요소 글 끝 개행 없음(#16)",
+     {"options": {"include_page_number": False, "rows": 6, "cols": 32},
+      "pages": [{"orig_page_no": 1, "elements": [
+          {"id": "e1", "text": "⠀⠀⠁⠃⠉"}, {"id": "e2", "text": "⠀⠀⠙⠑⠋"}]}]},
+     "웹에서 저장한 쪽 — 요소마다 줄이 갈린다"),
 ]
 
 
 def build() -> dict:
-    out = {"version": "0.3.0", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.3.1", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
                                          "build_brf": []}}
     for name, kw, src in PAGE_ROW:

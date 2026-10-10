@@ -262,7 +262,10 @@ export function buildPages(
     for (const b of blocks) {
       const t = b.text ?? '';
       if (t.trim() === PAGE_BREAK_TAG) { segs.push(cur.join('')); segs.push(null); cur = []; }
-      else cur.push(t);
+      // 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#16, 웹에서
+      // 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 토막 끝 개행은 아래에서 종결자로
+      // 떼므로 마지막 블록은 종전과 같다.
+      else cur.push(t === '' || t.endsWith('\n') ? t : `${t}\n`);
     }
     segs.push(cur.join(''));
     for (const seg of segs) {
